@@ -1,0 +1,15 @@
+schema_version: 1
+broker:
+  hostname: control-broker01
+  address: BROKER_ADDRESS_WITH_PREFIX
+  dns_name: BROKER_INTERNAL_DNS_NAME
+  vlan: BROKER_MANAGEMENT_VLAN
+protected_resources:
+  proxmox_guests: []
+  unifi_ports: []
+  kubernetes_resources: []
+allowed_resources:
+  proxmox_guests: []
+  home_assistant_entities: []
+  unifi_ports: []
+  github_workflows: []

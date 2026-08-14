@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deckhand-control-plane"
+version = "0.1.0"
+description = "Typed intent and status control plane for Stream Deck and the lab"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "jsonschema>=4.25,<5",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "structlog>=25.4,<26",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.scripts]
+deckhand-api = "deckhand.main:run"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+  "types-jsonschema>=4.25,<5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps/broker/src/deckhand"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=deckhand --cov-report=term-missing"
+pythonpath = ["apps/broker/src"]
+testpaths = ["apps/broker/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"apps/broker/tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["deckhand"]
+mypy_path = "apps/broker/src"

@@ -1,0 +1,21 @@
+{
+  "id": "status.lab.summary",
+  "version": 1,
+  "title": "Lab status",
+  "description": "Read the normalized lab health summary without changing target state.",
+  "risk_class": "read",
+  "adapter": "fake",
+  "target_types": ["lab"],
+  "parameter_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "policy_action": "status.lab.read",
+  "confirmation": "none",
+  "timeout_seconds": 10,
+  "idempotency": "observation",
+  "mutation": false
+}
+
