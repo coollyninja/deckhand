@@ -46,7 +46,7 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @deckhand/streamdeck-plugin check
       - run: pnpm --filter @deckhand/streamdeck-plugin build
       - run: pnpm --filter @deckhand/streamdeck-plugin validate
