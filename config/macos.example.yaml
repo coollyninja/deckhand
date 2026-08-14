@@ -2,6 +2,6 @@ apps:
   terminal: com.example.Terminal
   obs: com.example.OBS
 browser_sessions:
-  lab-dashboard: https://DASHBOARD_INTERNAL_NAME/
+  operations-dashboard: https://DASHBOARD_INTERNAL_NAME/
 shortcuts:
   meeting-mode: Deckhand Meeting Mode

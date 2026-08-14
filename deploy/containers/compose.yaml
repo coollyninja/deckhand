@@ -14,7 +14,8 @@ services:
     volumes:
       - deckhand-data:/var/lib/deckhand
       - ../../packages/catalog:/opt/deckhand/packages/catalog:ro
-      - ../../config/inventory.yaml:/opt/deckhand/config/inventory.yaml:ro
+      - ../../config/plugins.yaml:/opt/deckhand/config/plugins.yaml:ro
+      - ../../config/plugins.lock.yaml:/opt/deckhand/config/plugins.lock.yaml:ro
     security_opt:
       - no-new-privileges:true
     cap_drop: ["ALL"]

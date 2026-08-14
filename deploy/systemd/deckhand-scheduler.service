@@ -11,6 +11,8 @@ WorkingDirectory=/opt/deckhand
 ExecStart=/opt/deckhand/.venv/bin/deckhand-scheduler
 Environment=DECKHAND_DATABASE_PATH=/var/lib/deckhand/deckhand.db
 Environment=DECKHAND_CATALOG_PATH=/etc/deckhand/catalog
+Environment=DECKHAND_PLUGIN_CONFIG_PATH=/etc/deckhand/plugins.yaml
+Environment=DECKHAND_PLUGIN_LOCK_PATH=/etc/deckhand/plugins.lock.yaml
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

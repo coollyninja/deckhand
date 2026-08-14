@@ -1,0 +1,21 @@
+{
+  "id": "test.resource.ensure_active",
+  "version": 1,
+  "title": "Ensure test resource active",
+  "description": "Exercise mutation policy without connecting to an external system.",
+  "risk_class": "reversible",
+  "plugin": "dh-core",
+  "adapter": "dh-core.disabled",
+  "target_types": ["resource"],
+  "parameter_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "policy_action": "test.resource.mutate",
+  "confirmation": "confirm",
+  "timeout_seconds": 30,
+  "idempotency": "ensure-state",
+  "mutation": true
+}

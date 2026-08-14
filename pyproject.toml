@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deckhand-control-plane"
-version = "0.1.0"
-description = "Typed intent and status control plane for Stream Deck and the lab"
+version = "0.2.0"
+description = "Extensible typed-intent and status control plane for Stream Deck"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"

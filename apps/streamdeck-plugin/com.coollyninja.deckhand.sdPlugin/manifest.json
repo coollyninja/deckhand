@@ -23,7 +23,7 @@
   "Category": "Deckhand",
   "CategoryIcon": "imgs/action",
   "CodePath": "bin/plugin.js",
-  "Description": "Typed intent and authoritative status for macOS and lab infrastructure.",
+  "Description": "Typed intent and authoritative status for operator-selected systems.",
   "Icon": "imgs/plugin",
   "Name": "Deckhand",
   "Nodejs": {"Version": "24"},

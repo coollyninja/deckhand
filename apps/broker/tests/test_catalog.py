@@ -8,11 +8,11 @@ from deckhand.models import ActionRequest, RequestContext, Target
 
 def test_catalog_rejects_wrong_target_type() -> None:
     root = Path(__file__).parents[3]
-    catalog = Catalog.from_path(root / "packages/catalog/actions")
+    catalog = Catalog.from_path(root / "apps/broker/tests/fixtures/catalog")
     request = ActionRequest(
-        action_id="pve.vm.ensure_running",
+        action_id="test.resource.ensure_active",
         action_version=1,
-        target=Target(type="lab", id="210"),
+        target=Target(type="other", id="example"),
         context=RequestContext(client="test"),
         idempotency_key=uuid4(),
     )

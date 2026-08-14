@@ -23,7 +23,12 @@ export class StatusAction extends SingletonAction<StatusSettings> {
   private async refresh(
     event: WillAppearEvent<StatusSettings> | KeyDownEvent<StatusSettings>,
   ): Promise<void> {
-    const { brokerUrl, domain = "lab", label = domain } = event.payload.settings;
+    const { brokerUrl, domain, label = domain } = event.payload.settings;
+    if (!domain) {
+      await event.action.setTitle("CONFIGURE");
+      await event.action.showAlert();
+      return;
+    }
     try {
       const value = await this.client.status(brokerUrl, domain);
       await event.action.setTitle(`${label}\n${value.state.toUpperCase()}`);

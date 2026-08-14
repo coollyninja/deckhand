@@ -15,9 +15,9 @@ async def test_unknown_outcome_is_observed_before_success(tmp_path: Path) -> Non
     store = Store(tmp_path / "reconcile.db")
     store.initialize()
     request = ActionRequest(
-        action_id="status.lab.summary",
+        action_id="test.resource.observe",
         action_version=1,
-        target=Target(type="lab", id="lab"),
+        target=Target(type="resource", id="example"),
         context=RequestContext(client="test"),
         idempotency_key=uuid4(),
     )
@@ -28,8 +28,8 @@ async def test_unknown_outcome_is_observed_before_success(tmp_path: Path) -> Non
     expired = store.get_job(queued.id)
     assert expired is not None
     assert expired.state == JobState.UNKNOWN_OUTCOME
-    catalog = Catalog.from_path(root / "packages/catalog/actions")
-    reconciler = Reconciler(store, catalog, AdapterRegistry({"fake": FakeAdapter()}))
+    catalog = Catalog.from_path(root / "apps/broker/tests/fixtures/catalog")
+    reconciler = Reconciler(store, catalog, AdapterRegistry({"dh-core.fake": FakeAdapter()}))
     reconciled = await reconciler.run_once()
     assert reconciled[0].state == JobState.SUCCEEDED
     assert reconciled[0].result is not None

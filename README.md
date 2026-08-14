@@ -1,6 +1,6 @@
 # Deckhand
 
-Deckhand turns an Elgato Stream Deck into a trustworthy status and intent surface for a macOS workstation and the Tafy Labs lab. The deck never holds infrastructure credentials or sends arbitrary commands. A hardened broker authenticates, authorizes, audits, executes, and verifies every remote action.
+Deckhand turns an Elgato Stream Deck into a trustworthy, extensible status and intent surface. The deck never holds infrastructure credentials or sends arbitrary commands. A hardened broker authenticates, authorizes, audits, executes, and verifies every remote action through version-locked `dh-*` plugins.
 
 The implementation follows a source-controlled private deployment plan in the operator's Domain Vault. Public architecture and security invariants live under [`docs/`](docs/).
 
@@ -11,6 +11,7 @@ The implementation currently includes:
 - strict action/request/status schemas;
 - a FastAPI broker with durable SQLite jobs, idempotency, audit chaining, and fail-closed mutation checks;
 - a catalog loader and deterministic fake adapter for development;
+- a versioned plugin ABI, explicit activation configuration, and fail-closed plugin lock;
 - deny-by-default OPA policy and policy tests;
 - leased durable worker execution and postcondition verification;
 - normalized, explicitly stale/unconfigured status aggregation;
@@ -20,6 +21,18 @@ The implementation currently includes:
 - broker, policy, macOS-agent, plugin, container, and CI quality gates.
 
 No production mutation is enabled by default.
+
+## Plugin ecosystem
+
+Plugin repositories use `dh-<slug>` names, expose the `deckhand.plugins` Python entry point, and namespace runtime components as `dh-<slug>.<component>`. Built-in and external plugins pass through the same manifest, configuration-schema, version-lock, and contribution validation. External plugin loading is disabled unless `DECKHAND_ALLOW_EXTERNAL_PLUGINS=true`.
+
+Site topology belongs in an untracked `config/plugins.yaml` or a private deployment repository. Public solution packs contain logical aliases and placeholders only. See [Plugin architecture](docs/plugin-architecture.md).
+
+The initial public ecosystem is:
+
+- [`dh-http-status`](https://github.com/coollyninja/dh-http-status), the first independently installed read-only provider;
+- [`dh-plugin-template`](https://github.com/coollyninja/dh-plugin-template), a working GitHub template and conformance starter;
+- [`dh-pack-homelab`](https://github.com/coollyninja/dh-pack-homelab), a topology-neutral observability composition.
 
 ## Development
 
