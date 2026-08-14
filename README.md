@@ -12,6 +12,7 @@ The implementation currently includes:
 - a FastAPI broker with durable SQLite jobs, idempotency, audit chaining, and fail-closed mutation checks;
 - a catalog loader and deterministic fake adapter for development;
 - a versioned plugin ABI, explicit activation configuration, and fail-closed plugin lock;
+- a stable six-operation adapter lifecycle with structured errors, observation-before-success, reconciliation, health, and cancellation;
 - deny-by-default OPA policy and policy tests;
 - leased durable worker execution and postcondition verification;
 - normalized, explicitly stale/unconfigured status aggregation;

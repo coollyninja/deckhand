@@ -9,7 +9,8 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from prometheus_client import make_asgi_app
 
-from .adapters import AdapterRegistry
+from .adapters import AdapterHealth, AdapterRegistry
+from .cancellation import CancellationError, Canceller
 from .catalog import Catalog, CatalogError
 from .config import Settings
 from .digests import request_digest
@@ -32,6 +33,7 @@ class Runtime:
     adapters: AdapterRegistry
     worker: Worker
     status: StatusAggregator
+    canceller: Canceller
 
 
 def create_app(
@@ -46,6 +48,7 @@ def create_app(
     store = Store(configured.database_path)
     policy_engine = policy or OpaPolicyEngine(configured.opa_url, configured.opa_decision_path)
     adapter_registry = adapters or extensions.adapters
+    canceller = Canceller(store, catalog, adapter_registry)
     runtime = Runtime(
         settings=configured,
         catalog=catalog,
@@ -54,6 +57,7 @@ def create_app(
         adapters=adapter_registry,
         worker=Worker(configured.worker_id, store, catalog, adapter_registry),
         status=extensions.status,
+        canceller=canceller,
     )
 
     @asynccontextmanager
@@ -61,7 +65,7 @@ def create_app(
         runtime.store.initialize()
         yield
 
-    app = FastAPI(title="Deckhand Broker", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Deckhand Broker", version="0.3.0", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/metrics", make_asgi_app())
 
@@ -164,6 +168,12 @@ def create_app(
         _: Annotated[Subject, Depends(authenticated_subject)],
     ) -> tuple[PluginManifest, ...]:
         return extensions.manifests
+
+    @app.get("/v1/plugins/health", response_model=dict[str, AdapterHealth])
+    async def plugin_health(
+        _: Annotated[Subject, Depends(authenticated_subject)],
+    ) -> dict[str, AdapterHealth]:
+        return await runtime.adapters.health()
 
     @app.get("/v1/status/summary")
     async def status_summary(
@@ -280,6 +290,20 @@ def create_app(
         if found is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
         return found
+
+    @app.post("/v1/jobs/{job_id}:cancel", response_model=JobView)
+    async def cancel_job(
+        job_id: str, subject: Annotated[Subject, Depends(authenticated_subject)]
+    ) -> JobView:
+        try:
+            return await runtime.canceller.cancel(job_id, subject)
+        except CancellationError as error:
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if str(error) == "job not found"
+                else status.HTTP_409_CONFLICT
+            )
+            raise HTTPException(code, str(error)) from error
 
     @app.get("/v1/events")
     async def events(

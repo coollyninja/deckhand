@@ -73,7 +73,7 @@ class CorePlugin:
         return PluginManifest(
             id="dh-core",
             name="Deckhand Core Development Adapter",
-            version="0.2.0",
+            version="0.3.0",
             description="Topology-neutral deterministic adapters for development and tests.",
             adapters=["dh-core.fake", "dh-core.disabled"],
             permissions=PluginPermissions(mutation=False),
@@ -97,7 +97,7 @@ def default_plugin_configuration() -> PluginConfiguration:
 
 
 def default_plugin_lock() -> PluginLock:
-    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.2.0", source="builtin")])
+    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.3.0", source="builtin")])
 
 
 def _load_yaml_mapping(path: Path, description: str) -> dict[str, Any]:
@@ -246,10 +246,16 @@ class PluginManager:
         for name, adapter in contribution.adapters.items():
             if name in adapters:
                 raise PluginError(f"adapter {name!r} is contributed more than once")
+            if not isinstance(adapter, Adapter):
+                raise PluginError(
+                    f"adapter {name!r} does not implement the complete lifecycle contract"
+                )
             adapters[name] = adapter
         for name, provider in contribution.status_providers.items():
             if name in status_providers:
                 raise PluginError(f"status provider {name!r} is contributed more than once")
+            if not isinstance(provider, StatusProvider):
+                raise PluginError(f"status provider {name!r} does not implement observe")
             status_providers[name] = provider
         known_actions = {action.id for action in actions}
         if any(action.id in known_actions for action in contribution.actions):

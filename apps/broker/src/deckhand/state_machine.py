@@ -16,8 +16,12 @@ ALLOWED_TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     JobState.RUNNING: frozenset(
         {JobState.VERIFYING, JobState.FAILED, JobState.UNKNOWN_OUTCOME, JobState.CANCELLED}
     ),
-    JobState.VERIFYING: frozenset({JobState.SUCCEEDED, JobState.FAILED, JobState.UNKNOWN_OUTCOME}),
-    JobState.UNKNOWN_OUTCOME: frozenset({JobState.VERIFYING, JobState.SUCCEEDED, JobState.FAILED}),
+    JobState.VERIFYING: frozenset(
+        {JobState.SUCCEEDED, JobState.FAILED, JobState.UNKNOWN_OUTCOME, JobState.CANCELLED}
+    ),
+    JobState.UNKNOWN_OUTCOME: frozenset(
+        {JobState.VERIFYING, JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED}
+    ),
     JobState.SUCCEEDED: frozenset(),
     JobState.DENIED: frozenset(),
     JobState.REJECTED: frozenset(),

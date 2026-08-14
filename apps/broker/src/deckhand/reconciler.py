@@ -1,6 +1,6 @@
-from .adapters import AdapterError, AdapterRegistry
+from .adapters import AdapterError, AdapterErrorKind, AdapterExecution, AdapterRegistry
 from .catalog import Catalog
-from .models import JobState, JobView
+from .models import JobError, JobState, JobView, RetryDisposition
 from .store import Store
 
 
@@ -17,13 +17,58 @@ class Reconciler:
             request, _ = self.store.get_job_context(job.id)
             action = self.catalog.validate_request(request)
             adapter = self.adapters.get(action.adapter)
+            partial_result = job.result or {}
+            execution_data = partial_result.get("execution")
+            execution = (
+                AdapterExecution.model_validate(execution_data)
+                if isinstance(execution_data, dict)
+                else AdapterExecution(details=partial_result)
+            )
+            self.store.transition_job(
+                job.id, JobState.VERIFYING, result=partial_result, error=job.error
+            )
             try:
-                observed = await adapter.verify(action, request, job.result or {})
-                reconciled.append(
-                    self.store.transition_job(job.id, JobState.SUCCEEDED, result=observed)
-                )
+                observation = await adapter.observe(action, request)
+                verification = await adapter.verify(action, request, execution, observation)
+                if verification.satisfied:
+                    reconciled.append(
+                        self.store.transition_job(
+                            job.id,
+                            JobState.SUCCEEDED,
+                            result={
+                                **partial_result,
+                                "observation": observation.model_dump(mode="json"),
+                                "verification": verification.model_dump(mode="json"),
+                            },
+                        )
+                    )
+                else:
+                    reconciled.append(
+                        self.store.transition_job(
+                            job.id,
+                            JobState.UNKNOWN_OUTCOME,
+                            result=partial_result,
+                            error=JobError(
+                                code=AdapterErrorKind.CONFLICT.value,
+                                message="adapter postcondition is not yet satisfied",
+                                retry=RetryDisposition.RECONCILE_FIRST,
+                                reconciliation_required=True,
+                                details=verification.details,
+                            ),
+                        )
+                    )
             except AdapterError as error:
+                target = (
+                    JobState.UNKNOWN_OUTCOME
+                    if error.retry != RetryDisposition.NEVER
+                    else JobState.FAILED
+                )
                 reconciled.append(
-                    self.store.transition_job(job.id, JobState.FAILED, error=str(error))
+                    self.store.transition_job(
+                        job.id,
+                        target,
+                        result=partial_result,
+                        error=error.as_job_error(),
+                    )
                 )
         return reconciled
