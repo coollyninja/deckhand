@@ -1,0 +1,4 @@
+packages:
+  - apps/streamdeck-plugin
+allowBuilds:
+  esbuild: set this to true or false

@@ -1,0 +1,31 @@
+{
+  auto_https disable_redirects
+}
+
+# Tailscale Serve proxies to this loopback listener. Tailscale strips spoofed
+# identity/app-capability headers before adding authoritative values.
+http://127.0.0.1:19472 {
+  reverse_proxy 127.0.0.1:19470 {
+    header_up X-Deckhand-Channel tailscale
+    header_up X-Deckhand-Proxy-Assertion {$DECKHAND_PROXY_ASSERTION}
+  }
+}
+
+# Replace the listener and CA paths from private inventory. The proxy assertion
+# is process-scoped and loaded from a systemd credential by the Caddy wrapper.
+https://BROKER_MANAGEMENT_DNS_NAME {
+  tls /etc/deckhand/tls/server.pem /etc/deckhand/tls/server-key.pem {
+    client_auth {
+      mode require_and_verify
+      trust_pool file /etc/deckhand/tls/client-ca.pem
+    }
+  }
+  reverse_proxy 127.0.0.1:19470 {
+    header_up -Tailscale-User-Login
+    header_up -Tailscale-App-Capabilities
+    header_up X-Deckhand-Channel mgmt-mtls
+    header_up X-Deckhand-Subject {http.request.tls.client.subject}
+    header_up X-Deckhand-Device {http.request.tls.client.serial}
+    header_up X-Deckhand-Proxy-Assertion {$DECKHAND_PROXY_ASSERTION}
+  }
+}

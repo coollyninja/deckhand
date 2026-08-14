@@ -1,0 +1,12 @@
+{
+  "name": "deckhand-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "pnpm --filter @deckhand/streamdeck-plugin build",
+    "check": "pnpm --filter @deckhand/streamdeck-plugin check"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

@@ -28,3 +28,11 @@ test_mutation_denied_by_default if {
 	}
 		with data.inventory as {"operators": ["bobby"], "managed_devices": ["mac"], "allowed_targets": {"pve.vm.ensure_running": ["210"]}}
 }
+
+test_decision_is_structured if {
+	result := data.deckhand.authz.decision with input as {
+		"action": {"risk_class": "read", "mutation": false, "confirmation": "none"},
+		"subject": {"name": "bobby", "device": "mac", "channel": "tailscale"},
+	}
+	result == {"allow": true, "reason": "allowed", "required_confirmation": "none"}
+}

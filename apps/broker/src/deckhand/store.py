@@ -1,14 +1,25 @@
 import hashlib
+import hmac
 import json
+import secrets
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .models import ActionRequest, JobState, JobView, Subject
+from .digests import request_digest
+from .models import (
+    ActionRequest,
+    ConfirmationChallenge,
+    ConfirmationMode,
+    JobState,
+    JobView,
+    Subject,
+)
+from .state_machine import require_transition
 
 
 class StoreError(RuntimeError):
@@ -25,10 +36,25 @@ CREATE TABLE IF NOT EXISTS jobs (
   request_digest TEXT NOT NULL,
   subject_json TEXT NOT NULL,
   state TEXT NOT NULL,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
   result_json TEXT,
   error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jobs_state_created_idx ON jobs(state, created_at);
+CREATE TABLE IF NOT EXISTS confirmations (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  subject_name TEXT NOT NULL,
+  subject_device TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  expected_response TEXT,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit_events (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,9 +93,10 @@ class Store:
     def create_job(self, request: ActionRequest, subject: Subject) -> JobView:
         now = datetime.now(UTC).isoformat()
         request_json = request.model_dump_json()
-        digest = hashlib.sha256(request_json.encode()).hexdigest()
+        digest = request_digest(request)
         job_id = f"job_{uuid4().hex}"
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 "SELECT * FROM jobs WHERE idempotency_key = ?", (str(request.idempotency_key),)
             ).fetchone()
@@ -108,6 +135,241 @@ class Store:
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             return None if row is None else self._job_view(row)
 
+    def get_job_context(self, job_id: str) -> tuple[ActionRequest, Subject]:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row is None:
+                raise StoreError("job not found")
+            return (
+                ActionRequest.model_validate_json(row["request_json"]),
+                Subject.model_validate_json(row["subject_json"]),
+            )
+
+    def claim_next_job(self, worker_id: str, lease_seconds: int = 30) -> JobView | None:
+        now = datetime.now(UTC)
+        lease_expiry = now + timedelta(seconds=lease_seconds)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT * FROM jobs
+                WHERE state = ? AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                ORDER BY created_at LIMIT 1""",
+                (JobState.QUEUED.value, now.isoformat()),
+            ).fetchone()
+            if row is None:
+                return None
+            require_transition(JobState(row["state"]), JobState.RUNNING)
+            connection.execute(
+                """UPDATE jobs SET state = ?, lease_owner = ?, lease_expires_at = ?, updated_at = ?
+                WHERE id = ?""",
+                (
+                    JobState.RUNNING.value,
+                    worker_id,
+                    lease_expiry.isoformat(),
+                    now.isoformat(),
+                    row["id"],
+                ),
+            )
+            self._append_audit(
+                connection,
+                "job.running",
+                {"job_id": row["id"], "worker_id": worker_id},
+            )
+            claimed = connection.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
+            if claimed is None:
+                raise StoreError("claimed job disappeared")
+            return self._job_view(claimed)
+
+    def transition_job(
+        self,
+        job_id: str,
+        target: JobState,
+        *,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> JobView:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row is None:
+                raise StoreError("job not found")
+            require_transition(JobState(row["state"]), target)
+            connection.execute(
+                """UPDATE jobs SET state = ?, result_json = ?, error = ?,
+                lease_owner = CASE WHEN ? = ? THEN lease_owner ELSE NULL END,
+                lease_expires_at = CASE WHEN ? = ? THEN lease_expires_at ELSE NULL END,
+                updated_at = ? WHERE id = ?""",
+                (
+                    target.value,
+                    json.dumps(result, sort_keys=True) if result is not None else None,
+                    error,
+                    target.value,
+                    JobState.VERIFYING.value,
+                    target.value,
+                    JobState.VERIFYING.value,
+                    now,
+                    job_id,
+                ),
+            )
+            self._append_audit(
+                connection,
+                f"job.{target.value}",
+                {"job_id": job_id, "result": result, "error": error},
+            )
+            updated = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if updated is None:
+                raise StoreError("updated job disappeared")
+            return self._job_view(updated)
+
+    def expire_leases(self) -> int:
+        """Move abandoned remote operations to UNKNOWN_OUTCOME; never replay them blindly."""
+        now = datetime.now(UTC)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """SELECT * FROM jobs WHERE state IN (?, ?)
+                AND lease_expires_at IS NOT NULL AND lease_expires_at < ?""",
+                (JobState.RUNNING.value, JobState.VERIFYING.value, now.isoformat()),
+            ).fetchall()
+            for row in rows:
+                require_transition(JobState(row["state"]), JobState.UNKNOWN_OUTCOME)
+                connection.execute(
+                    """UPDATE jobs SET state = ?, lease_owner = NULL, lease_expires_at = NULL,
+                    error = ?, updated_at = ? WHERE id = ?""",
+                    (
+                        JobState.UNKNOWN_OUTCOME.value,
+                        "worker lease expired; reconciliation required",
+                        now.isoformat(),
+                        row["id"],
+                    ),
+                )
+                self._append_audit(
+                    connection,
+                    "job.unknown_outcome",
+                    {"job_id": row["id"], "reason": "lease_expired"},
+                )
+            return len(rows)
+
+    def list_jobs(self, state: JobState, limit: int = 100) -> list[JobView]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE state = ? ORDER BY updated_at LIMIT ?",
+                (state.value, min(limit, 1000)),
+            ).fetchall()
+            return [self._job_view(row) for row in rows]
+
+    def create_confirmation(
+        self,
+        request: ActionRequest,
+        subject: Subject,
+        mode: ConfirmationMode,
+        prompt: str,
+        ttl_seconds: int = 60,
+    ) -> ConfirmationChallenge:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=ttl_seconds)
+        confirmation_id = f"confirm_{uuid4().hex}"
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expected_response = request.target.id if mode == ConfirmationMode.TYPED else None
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """INSERT INTO confirmations
+                (id, token_hash, request_digest, subject_name, subject_device, mode,
+                 expected_response, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    confirmation_id,
+                    token_hash,
+                    request_digest(request),
+                    subject.name,
+                    subject.device,
+                    mode.value,
+                    expected_response,
+                    expires_at.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            self._append_audit(
+                connection,
+                "confirmation.created",
+                {
+                    "confirmation_id": confirmation_id,
+                    "request_digest": request_digest(request),
+                    "mode": mode.value,
+                },
+            )
+        return ConfirmationChallenge(
+            id=confirmation_id,
+            token=token,
+            mode=mode,
+            expires_at=expires_at,
+            prompt=prompt,
+        )
+
+    def consume_confirmation(
+        self,
+        request: ActionRequest,
+        subject: Subject,
+        token: str,
+        response: str | None = None,
+    ) -> bool:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        now = datetime.now(UTC)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT * FROM confirmations
+                WHERE request_digest = ? AND subject_name = ? AND subject_device = ?
+                  AND used_at IS NULL ORDER BY created_at DESC LIMIT 1""",
+                (request_digest(request), subject.name, subject.device),
+            ).fetchone()
+            if row is None or not hmac.compare_digest(row["token_hash"], token_hash):
+                return False
+            if datetime.fromisoformat(row["expires_at"]) <= now:
+                return False
+            if row["expected_response"] is not None and not hmac.compare_digest(
+                row["expected_response"], response or ""
+            ):
+                return False
+            connection.execute(
+                "UPDATE confirmations SET used_at = ? WHERE id = ?", (now.isoformat(), row["id"])
+            )
+            self._append_audit(
+                connection,
+                "confirmation.consumed",
+                {"confirmation_id": row["id"], "request_digest": request_digest(request)},
+            )
+            return True
+
+    def list_audit_events(self, after_sequence: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM audit_events WHERE sequence > ?
+                ORDER BY sequence LIMIT ?""",
+                (after_sequence, min(limit, 1000)),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def verify_audit_chain(self) -> bool:
+        previous_hash = "0" * 64
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM audit_events ORDER BY sequence").fetchall()
+        for row in rows:
+            if row["previous_hash"] != previous_hash:
+                return False
+            material = "\x1f".join(
+                (previous_hash, row["occurred_at"], row["event_type"], row["payload_json"])
+            )
+            if not hmac.compare_digest(
+                hashlib.sha256(material.encode()).hexdigest(), row["event_hash"]
+            ):
+                return False
+            previous_hash = row["event_hash"]
+        return True
+
     def audit_is_writable(self) -> bool:
         try:
             with self.connect() as connection:
@@ -127,7 +389,7 @@ class Store:
         ).fetchone()
         previous_hash = previous["event_hash"] if previous else "0" * 64
         occurred_at = datetime.now(UTC).isoformat()
-        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
         material = "\x1f".join((previous_hash, occurred_at, event_type, payload_json))
         event_hash = hashlib.sha256(material.encode()).hexdigest()
         connection.execute(

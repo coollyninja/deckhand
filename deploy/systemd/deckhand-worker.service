@@ -1,0 +1,36 @@
+[Unit]
+Description=Deckhand durable job worker
+After=network-online.target deckhand-broker.service
+Requires=deckhand-broker.service
+
+[Service]
+Type=exec
+User=deckhand-worker
+Group=deckhand
+WorkingDirectory=/opt/deckhand
+ExecStart=/opt/deckhand/.venv/bin/deckhand-worker
+Environment=DECKHAND_DATABASE_PATH=/var/lib/deckhand/deckhand.db
+Environment=DECKHAND_CATALOG_PATH=/etc/deckhand/catalog
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/deckhand
+UMask=0077
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target

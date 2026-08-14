@@ -25,6 +25,28 @@ def test_actions_require_authenticated_identity(client: TestClient) -> None:
     assert client.get("/v1/actions").status_code == 401
 
 
+def test_tailscale_identity_requires_unspoofable_app_capability(client: TestClient) -> None:
+    headers = {
+        "Tailscale-User-Login": "operator@example.com",
+        "X-Deckhand-Channel": "tailscale",
+        "X-Deckhand-Proxy-Assertion": "test-proxy-assertion",
+        "X-Deckhand-Device": "spoofed-device",
+    }
+    assert client.get("/v1/actions", headers=headers).status_code == 401
+
+
+def test_tailscale_app_capability_supplies_device_identity(client: TestClient) -> None:
+    headers = {
+        "Tailscale-User-Login": "operator@example.com",
+        "Tailscale-App-Capabilities": (
+            '{"coollyninja.com/cap/deckhand":[{"device":"managed-mac"}]}'
+        ),
+        "X-Deckhand-Channel": "tailscale",
+        "X-Deckhand-Proxy-Assertion": "test-proxy-assertion",
+    }
+    assert client.get("/v1/actions", headers=headers).status_code == 200
+
+
 def test_unknown_parameters_are_rejected(client: TestClient, headers: dict[str, str]) -> None:
     payload = request()
     payload["parameters"] = {"command": "rm -rf /"}

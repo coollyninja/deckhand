@@ -15,9 +15,8 @@
     }
   },
   "policy_action": "pve.vm.power",
-  "confirmation": "policy",
+  "confirmation": "confirm",
   "timeout_seconds": 120,
   "idempotency": "ensure-state",
   "mutation": true
 }
-

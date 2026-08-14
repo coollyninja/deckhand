@@ -22,8 +22,8 @@ jobs:
       - run: uv sync --locked --all-groups
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy apps/broker/src
-      - run: uv run pytest --cov-report=xml
+      - run: uv run mypy apps/broker/src apps/macos-agent/src
+      - run: uv run pytest --cov-report=xml --cov-fail-under=70
 
   policy:
     runs-on: ubuntu-latest
@@ -31,7 +31,33 @@ jobs:
       - uses: actions/checkout@v4
       - uses: open-policy-agent/setup-opa@v2
         with:
-          version: latest
+          version: 1.19.0
       - run: opa fmt --fail packages/policy
       - run: opa test packages/policy -v
 
+  plugin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @deckhand/streamdeck-plugin check
+      - run: pnpm --filter @deckhand/streamdeck-plugin build
+      - run: pnpm --filter @deckhand/streamdeck-plugin validate
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/containers/Dockerfile
+          push: false

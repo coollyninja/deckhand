@@ -6,14 +6,18 @@ The implementation follows a source-controlled private deployment plan in the op
 
 ## Repository status
 
-The contract-first foundation includes:
+The implementation currently includes:
 
 - strict action/request/status schemas;
 - a FastAPI broker with durable SQLite jobs, idempotency, audit chaining, and fail-closed mutation checks;
 - a catalog loader and deterministic fake adapter for development;
 - deny-by-default OPA policy and policy tests;
-- broker unit/API tests and CI quality gates;
-- deployment and client directories reserved for production workstreams.
+- leased durable worker execution and postcondition verification;
+- normalized, explicitly stale/unconfigured status aggregation;
+- `sdctl`, a localhost-only macOS agent, and Hammerspoon integration seam;
+- an official-SDK Stream Deck plugin with status, typed action, and confirmation keys;
+- hardened container/systemd/Caddy/launchd deployment assets;
+- broker, policy, macOS-agent, plugin, container, and CI quality gates.
 
 No production mutation is enabled by default.
 

@@ -16,4 +16,5 @@ dist/
 build/
 node_modules/
 *.streamDeckPlugin
+apps/streamdeck-plugin/com.coollyninja.deckhand.sdPlugin/bin/
 config/inventory.yaml

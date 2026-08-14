@@ -15,12 +15,18 @@ dependencies = [
   "jsonschema>=4.25,<5",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
+  "prometheus-client>=0.22,<1",
+  "pyyaml>=6.0,<7",
   "structlog>=25.4,<26",
   "uvicorn[standard]>=0.35,<1",
 ]
 
 [project.scripts]
 deckhand-api = "deckhand.main:run"
+deckhand-macos-agent = "deckhand_macos.main:run"
+deckhand-scheduler = "deckhand.scheduler_main:run"
+deckhand-worker = "deckhand.worker_main:run"
+sdctl = "deckhand.cli:run"
 
 [dependency-groups]
 dev = [
@@ -30,15 +36,16 @@ dev = [
   "pytest-cov>=6.2,<7",
   "ruff>=0.12,<1",
   "types-jsonschema>=4.25,<5",
+  "types-pyyaml>=6.0,<7",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["apps/broker/src/deckhand"]
+packages = ["apps/broker/src/deckhand", "apps/macos-agent/src/deckhand_macos"]
 
 [tool.pytest.ini_options]
-addopts = "-q --strict-markers --cov=deckhand --cov-report=term-missing"
-pythonpath = ["apps/broker/src"]
-testpaths = ["apps/broker/tests"]
+addopts = "-q --strict-markers --cov=deckhand --cov=deckhand_macos --cov-report=term-missing"
+pythonpath = ["apps/broker/src", "apps/macos-agent/src"]
+testpaths = ["apps/broker/tests", "apps/macos-agent/tests"]
 
 [tool.ruff]
 line-length = 100
@@ -49,9 +56,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/broker/tests/**" = ["S101"]
+"apps/macos-agent/tests/**" = ["S101"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["deckhand"]
-mypy_path = "apps/broker/src"
+packages = ["deckhand", "deckhand_macos"]
+mypy_path = "apps/broker/src:apps/macos-agent/src"

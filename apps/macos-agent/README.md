@@ -1,4 +1,5 @@
 # Deckhand macOS agent
 
-This workstream will provide localhost-only typed workstation actions, authoritative workstation state, Keychain integration, launchd packaging, and Hammerspoon IPC. It must never expose arbitrary shell, AppleScript, URL, bundle ID, path, or key-sequence execution.
+The macOS agent exposes only cataloged, alias-based workstation actions over loopback. It never accepts caller-supplied shell, AppleScript, bundle IDs, URLs, paths, or key sequences.
 
+Create a private configuration from `config/macos.example.yaml`, store a random bearer value in the configured token file, and run `deckhand-macos-agent`. Production packaging uses launchd and macOS Keychain-backed provisioning; the token file is a restricted runtime bridge, not a repository secret.

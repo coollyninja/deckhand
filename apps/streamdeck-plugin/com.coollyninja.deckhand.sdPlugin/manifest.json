@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Actions": [
+    {
+      "Controllers": ["Keypad"],
+      "Icon": "imgs/action",
+      "Name": "Deckhand Status",
+      "PropertyInspectorPath": "ui/status.html",
+      "States": [{"Image": "imgs/key", "Title": "STATUS"}],
+      "UUID": "com.coollyninja.deckhand.status"
+    },
+    {
+      "Controllers": ["Keypad"],
+      "DisableAutomaticStates": true,
+      "Icon": "imgs/action",
+      "Name": "Deckhand Action",
+      "PropertyInspectorPath": "ui/action.html",
+      "States": [{"Image": "imgs/key", "Title": "ACTION"}],
+      "UUID": "com.coollyninja.deckhand.action"
+    }
+  ],
+  "Author": "Bobby Larson",
+  "Category": "Deckhand",
+  "CategoryIcon": "imgs/action",
+  "CodePath": "bin/plugin.js",
+  "Description": "Typed intent and authoritative status for macOS and lab infrastructure.",
+  "Icon": "imgs/plugin",
+  "Name": "Deckhand",
+  "Nodejs": {"Version": "24"},
+  "OS": [{"Platform": "mac", "MinimumVersion": "13"}],
+  "SDKVersion": 2,
+  "Software": {"MinimumVersion": "7.1"},
+  "UUID": "com.coollyninja.deckhand",
+  "Version": "0.1.0.0"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@deckhand/streamdeck-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "esbuild src/plugin.ts --bundle --platform=node --format=esm --target=node24 --outfile=com.coollyninja.deckhand.sdPlugin/bin/plugin.js --sourcemap",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "validate": "streamdeck validate com.coollyninja.deckhand.sdPlugin"
+  },
+  "dependencies": {
+    "@elgato/streamdeck": "2.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@elgato/cli": "1.8.1",
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.0"
+  }
+}

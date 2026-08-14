@@ -1,15 +1,14 @@
 schema_version: 1
-broker:
-  hostname: control-broker01
-  address: BROKER_ADDRESS_WITH_PREFIX
-  dns_name: BROKER_INTERNAL_DNS_NAME
-  vlan: BROKER_MANAGEMENT_VLAN
-protected_resources:
-  proxmox_guests: []
-  unifi_ports: []
-  kubernetes_resources: []
-allowed_resources:
-  proxmox_guests: []
-  home_assistant_entities: []
-  unifi_ports: []
-  github_workflows: []
+status_endpoints:
+  prometheus:
+    base_url: https://PROMETHEUS_INTERNAL_NAME
+    health_path: /-/ready
+    authorization_file: /run/credentials/deckhand/prometheus-authorization
+    verify_tls: true
+    stale_after_seconds: 15
+  home_assistant:
+    base_url: https://HOME_ASSISTANT_INTERNAL_NAME
+    health_path: /api/
+    authorization_file: /run/credentials/deckhand/home-assistant-authorization
+    verify_tls: true
+    stale_after_seconds: 30

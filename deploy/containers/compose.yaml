@@ -1,0 +1,51 @@
+services:
+  broker:
+    build:
+      context: ../..
+      dockerfile: deploy/containers/Dockerfile
+    command: ["deckhand-api"]
+    environment:
+      DECKHAND_OPA_URL: http://opa:8181
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1770,size=32m
+    ports:
+      - "127.0.0.1:19470:19470"
+    volumes:
+      - deckhand-data:/var/lib/deckhand
+      - ../../packages/catalog:/opt/deckhand/packages/catalog:ro
+      - ../../config/inventory.yaml:/opt/deckhand/config/inventory.yaml:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    depends_on:
+      opa:
+        condition: service_healthy
+
+  worker:
+    extends: broker
+    command: ["deckhand-worker"]
+    ports: []
+
+  scheduler:
+    extends: broker
+    command: ["deckhand-scheduler"]
+    ports: []
+
+  opa:
+    image: docker.io/openpolicyagent/opa:1.19.0-static
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policy"]
+    read_only: true
+    volumes:
+      - ../../packages/policy:/policy:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  deckhand-data:

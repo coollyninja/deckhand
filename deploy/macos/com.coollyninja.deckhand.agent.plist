@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.coollyninja.deckhand.agent</string>
+  <key>ProgramArguments</key>
+  <array><string>DECKHAND_VENV_PATH/bin/deckhand-macos-agent</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DECKHAND_MACOS_INVENTORY_PATH</key><string>DECKHAND_CONFIG_PATH/macos.yaml</string>
+    <key>DECKHAND_MACOS_TOKEN_FILE</key><string>DECKHAND_RUNTIME_PATH/agent-token</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>DECKHAND_LOG_PATH/agent.log</string>
+  <key>StandardErrorPath</key><string>DECKHAND_LOG_PATH/agent-error.log</string>
+</dict>
+</plist>
