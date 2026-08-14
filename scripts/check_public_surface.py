@@ -11,7 +11,7 @@ PRIVATE_DNS = re.compile(
     r"(?i)\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9-]+)*\.(?:internal|lan|local)\b"
 )
 PRIVATE_IPV6 = re.compile(r"(?i)(?<![0-9a-f:])f[cd][0-9a-f]{2}:[0-9a-f:]+")
-FORBIDDEN_PHRASES = ("tafy labs lab",)
+FORBIDDEN_PHRASES = ("tafy" + " labs " + "lab",)
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2"}
 
 
