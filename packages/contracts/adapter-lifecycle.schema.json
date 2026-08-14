@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckhand.invalid/schemas/adapter-lifecycle.schema.json",
+  "title": "Deckhand adapter lifecycle values",
+  "$defs": {
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "checked_at", "details"],
+      "properties": {
+        "state": {"enum": ["healthy", "degraded", "unavailable"]},
+        "checked_at": {"type": "string", "format": "date-time"},
+        "details": {"type": "object"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "details"],
+      "properties": {
+        "reference": {"type": ["string", "null"], "maxLength": 512},
+        "details": {"type": "object"}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "observed_at", "details"],
+      "properties": {
+        "state": {"type": "string", "minLength": 1, "maxLength": 128},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "details": {"type": "object"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["satisfied", "details"],
+      "properties": {
+        "satisfied": {"type": "boolean"},
+        "details": {"type": "object"}
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "details"],
+      "properties": {
+        "disposition": {
+          "enum": ["cancelled", "not_supported", "already_terminal", "unknown"]
+        },
+        "details": {"type": "object"}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retry", "reconciliation_required", "details"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64},
+        "message": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "retry": {"enum": ["never", "safe", "reconcile_first"]},
+        "reconciliation_required": {"type": "boolean"},
+        "details": {"type": "object"}
+      }
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/health"},
+    {"$ref": "#/$defs/execution"},
+    {"$ref": "#/$defs/observation"},
+    {"$ref": "#/$defs/verification"},
+    {"$ref": "#/$defs/cancellation"},
+    {"$ref": "#/$defs/error"}
+  ]
+}

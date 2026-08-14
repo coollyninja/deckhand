@@ -33,4 +33,5 @@ async def test_unknown_outcome_is_observed_before_success(tmp_path: Path) -> Non
     reconciled = await reconciler.run_once()
     assert reconciled[0].state == JobState.SUCCEEDED
     assert reconciled[0].result is not None
-    assert reconciled[0].result["verified"] is True
+    assert reconciled[0].result["observation"]["state"] == "healthy"
+    assert reconciled[0].result["verification"]["satisfied"] is True

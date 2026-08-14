@@ -15,8 +15,10 @@ from .models import (
     ActionRequest,
     ConfirmationChallenge,
     ConfirmationMode,
+    JobError,
     JobState,
     JobView,
+    RetryDisposition,
     Subject,
 )
 from .state_machine import require_transition
@@ -186,7 +188,7 @@ class Store:
         target: JobState,
         *,
         result: dict[str, Any] | None = None,
-        error: str | None = None,
+        error: JobError | None = None,
     ) -> JobView:
         now = datetime.now(UTC).isoformat()
         with self.connect() as connection:
@@ -203,7 +205,7 @@ class Store:
                 (
                     target.value,
                     json.dumps(result, sort_keys=True) if result is not None else None,
-                    error,
+                    error.model_dump_json() if error is not None else None,
                     target.value,
                     JobState.VERIFYING.value,
                     target.value,
@@ -215,7 +217,11 @@ class Store:
             self._append_audit(
                 connection,
                 f"job.{target.value}",
-                {"job_id": job_id, "result": result, "error": error},
+                {
+                    "job_id": job_id,
+                    "result": result,
+                    "error": error.model_dump(mode="json") if error is not None else None,
+                },
             )
             updated = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if updated is None:
@@ -234,12 +240,18 @@ class Store:
             ).fetchall()
             for row in rows:
                 require_transition(JobState(row["state"]), JobState.UNKNOWN_OUTCOME)
+                failure = JobError(
+                    code="lease_expired",
+                    message="worker lease expired; reconciliation required",
+                    retry=RetryDisposition.RECONCILE_FIRST,
+                    reconciliation_required=True,
+                )
                 connection.execute(
                     """UPDATE jobs SET state = ?, lease_owner = NULL, lease_expires_at = NULL,
                     error = ?, updated_at = ? WHERE id = ?""",
                     (
                         JobState.UNKNOWN_OUTCOME.value,
-                        "worker lease expired; reconciliation required",
+                        failure.model_dump_json(),
                         now.isoformat(),
                         row["id"],
                     ),
@@ -410,5 +422,14 @@ class Store:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             result=json.loads(row["result_json"]) if row["result_json"] else None,
-            error=row["error"],
+            error=Store._job_error(row["error"]),
         )
+
+    @staticmethod
+    def _job_error(raw: str | None) -> JobError | None:
+        if raw is None:
+            return None
+        try:
+            return JobError.model_validate_json(raw)
+        except ValueError:
+            return JobError(code="legacy_error", message=raw)

@@ -36,6 +36,12 @@ class JobState(StrEnum):
     UNKNOWN_OUTCOME = "unknown_outcome"
 
 
+class RetryDisposition(StrEnum):
+    NEVER = "never"
+    SAFE = "safe"
+    RECONCILE_FIRST = "reconcile_first"
+
+
 TERMINAL_JOB_STATES = frozenset(
     {
         JobState.SUCCEEDED,
@@ -144,6 +150,14 @@ class PlanView(StrictModel):
     denial_reason: str | None = None
 
 
+class JobError(StrictModel):
+    code: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    message: str = Field(min_length=1, max_length=1024)
+    retry: RetryDisposition = RetryDisposition.NEVER
+    reconciliation_required: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class JobView(StrictModel):
     id: str
     state: JobState
@@ -152,7 +166,7 @@ class JobView(StrictModel):
     created_at: datetime
     updated_at: datetime
     result: dict[str, Any] | None = None
-    error: str | None = None
+    error: JobError | None = None
 
 
 class StatusValue(StrictModel):

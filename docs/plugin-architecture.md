@@ -39,7 +39,11 @@ Every plugin declares:
 - credential slots and logical egress bindings;
 - a strict JSON Schema for configuration.
 
-Adapters implement `plan`, `execute`, and `verify` today. The stable API will add `health`, `observe`, `cancel`, and explicit reconciliation/error classification before API version 1 is declared stable.
+Plugin API v1 is stable for the trusted in-process tier. Adapters implement `health`, `plan`, `execute`, `observe`, `verify`, and `cancel` with Deckhand-owned models. The worker records execution evidence, observes independently, and requires a satisfied verification before success. Reconciliation observes and verifies without replaying execution.
+
+Errors declare a bounded kind, retry disposition, reconciliation requirement, and sanitized details. Plugins never select job states or access the durable store. See [ADR-0002](adr/0002-stable-plugin-lifecycle.md) and `packages/contracts/adapter-lifecycle.schema.json`.
+
+Authenticated operators can inspect normalized adapter health at `GET /v1/plugins/health` and request cancellation at `POST /v1/jobs/{job_id}:cancel`. Cancellation is subject/device-bound and never converts an unknown or unsupported outcome into success.
 
 ## Configuration and secrets
 
@@ -58,3 +62,4 @@ Private site configuration selects plugins and binds logical aliases. Secret val
 - Plugin releases follow semantic versioning.
 - The lock records exact versions; deployment promotion updates the lock intentionally.
 - CI runs the same conformance suite against bundled and external plugins.
+- Additive model fields are backward-compatible within API v1. Removing lifecycle methods, changing enum meaning, or changing required fields requires a new plugin API version.

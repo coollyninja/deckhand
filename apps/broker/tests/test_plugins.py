@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
+from deckhand.plugin_api import PluginContext, PluginContribution, PluginManifest
 from deckhand.plugins import (
     PluginActivation,
     PluginConfiguration,
@@ -59,3 +61,38 @@ def test_external_plugins_are_fail_closed() -> None:
 def test_missing_configuration_defaults_to_core(tmp_path: Path) -> None:
     loaded = load_plugin_configuration(tmp_path / "missing.yaml")
     assert list(loaded.plugins) == ["dh-core"]
+
+
+class IncompleteAdapter:
+    async def plan(self, action: Any, request: Any) -> Any:
+        return None
+
+
+class IncompletePlugin:
+    @property
+    def manifest(self) -> PluginManifest:
+        return PluginManifest(
+            id="dh-incomplete",
+            name="Incomplete",
+            version="1.0.0",
+            description="Test fixture missing lifecycle methods.",
+            adapters=["dh-incomplete.adapter"],
+        )
+
+    def build(self, context: PluginContext) -> PluginContribution:
+        del context
+        return PluginContribution(adapters={"dh-incomplete.adapter": IncompleteAdapter()})  # type: ignore[dict-item]
+
+
+def test_incomplete_adapter_lifecycle_is_rejected() -> None:
+    manager = PluginManager(
+        builtin_factories={"dh-incomplete": IncompletePlugin}, external_entry_points={}
+    )
+    with pytest.raises(PluginError, match="complete lifecycle contract"):
+        manager.load(
+            PluginConfiguration(plugins={"dh-incomplete": PluginActivation()}),
+            PluginLock(
+                plugins=[PluginLockEntry(id="dh-incomplete", version="1.0.0", source="builtin")]
+            ),
+            allow_external=False,
+        )

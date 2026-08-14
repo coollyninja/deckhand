@@ -1,6 +1,6 @@
-from .adapters import AdapterError, AdapterRegistry, UnknownOutcome
+from .adapters import AdapterError, AdapterErrorKind, AdapterRegistry
 from .catalog import Catalog
-from .models import JobState, JobView
+from .models import JobState, JobView, RetryDisposition
 from .store import Store
 
 
@@ -21,11 +21,28 @@ class Worker:
         action = self.catalog.validate_request(request)
         adapter = self.adapters.get(action.adapter)
         try:
-            result = await adapter.execute(action, request)
-            self.store.transition_job(job.id, JobState.VERIFYING, result=result)
-            verified = await adapter.verify(action, request, result)
-            return self.store.transition_job(job.id, JobState.SUCCEEDED, result=verified)
-        except UnknownOutcome as error:
-            return self.store.transition_job(job.id, JobState.UNKNOWN_OUTCOME, error=str(error))
+            execution = await adapter.execute(action, request)
+            partial_result = {"execution": execution.model_dump(mode="json")}
+            self.store.transition_job(job.id, JobState.VERIFYING, result=partial_result)
+            observation = await adapter.observe(action, request)
+            verification = await adapter.verify(action, request, execution, observation)
+            if not verification.satisfied:
+                raise AdapterError(
+                    "adapter postcondition is not yet satisfied",
+                    kind=AdapterErrorKind.CONFLICT,
+                    retry=RetryDisposition.RECONCILE_FIRST,
+                    reconciliation_required=True,
+                    details=verification.details,
+                )
+            return self.store.transition_job(
+                job.id,
+                JobState.SUCCEEDED,
+                result={
+                    **partial_result,
+                    "observation": observation.model_dump(mode="json"),
+                    "verification": verification.model_dump(mode="json"),
+                },
+            )
         except AdapterError as error:
-            return self.store.transition_job(job.id, JobState.FAILED, error=str(error))
+            target = JobState.UNKNOWN_OUTCOME if error.reconciliation_required else JobState.FAILED
+            return self.store.transition_job(job.id, target, error=error.as_job_error())

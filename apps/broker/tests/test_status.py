@@ -1,5 +1,6 @@
 import pytest
-from deckhand.models import StatusValue
+from deckhand.adapters import AdapterError, AdapterErrorKind
+from deckhand.models import RetryDisposition, StatusValue
 from deckhand.plugin_api import StaticStatusProvider
 from deckhand.status import StatusAggregator
 
@@ -18,3 +19,20 @@ async def test_summary_contains_only_plugin_provided_domains() -> None:
     summary = await aggregator.summary()
     assert list(summary) == ["example"]
     assert summary["example"].state == "healthy"
+
+
+class FailingProvider:
+    async def observe(self) -> StatusValue:
+        raise AdapterError(
+            "upstream unavailable",
+            kind=AdapterErrorKind.UNAVAILABLE,
+            retry=RetryDisposition.SAFE,
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_error_is_normalized_without_leaking_message() -> None:
+    aggregator = StatusAggregator({"example": FailingProvider()})
+    value = await aggregator.domain("example")
+    assert value.state == "unavailable"
+    assert value.details == {"error_code": "unavailable", "retry": "safe"}

@@ -31,6 +31,15 @@ def test_plugin_inventory_requires_identity(client: TestClient, headers: dict[st
     assert response.json()[0]["id"] == "dh-core"
 
 
+def test_plugin_health_reports_adapter_lifecycle(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    response = client.get("/v1/plugins/health", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["dh-core.fake"]["state"] == "healthy"
+    assert response.json()["dh-core.disabled"]["state"] == "unavailable"
+
+
 def test_tailscale_identity_requires_unspoofable_app_capability(client: TestClient) -> None:
     headers = {
         "Tailscale-User-Login": "operator@example.com",
@@ -86,3 +95,12 @@ def test_idempotency_key_cannot_change_request(client: TestClient, headers: dict
     payload["target"] = {"type": "resource", "id": "different"}
     second = client.post("/v1/actions/test.resource.observe:execute", json=payload, headers=headers)
     assert second.status_code == 409
+
+
+def test_queued_job_can_be_cancelled(client: TestClient, headers: dict[str, str]) -> None:
+    submitted = client.post(
+        "/v1/actions/test.resource.observe:execute", json=request(), headers=headers
+    )
+    response = client.post(f"/v1/jobs/{submitted.json()['id']}:cancel", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["state"] == "cancelled"
