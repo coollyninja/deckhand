@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckhand.invalid/schemas/solution-pack.schema.json",
+  "title": "Deckhand solution pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "version", "description", "requires", "profiles", "configuration"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^dh-pack-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plugin", "version"],
+        "properties": {
+          "plugin": {"type": "string", "pattern": "^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+          "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"}
+        }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "path": {"type": "string", "pattern": "^profiles/[A-Za-z0-9._/-]+\\.yaml$"}
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugin_config", "plugin_lock", "policy_inventory"],
+      "properties": {
+        "plugin_config": {"type": "string"},
+        "plugin_lock": {"type": "string"},
+        "policy_inventory": {"type": "string"}
+      }
+    }
+  }
+}

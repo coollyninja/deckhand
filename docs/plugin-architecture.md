@@ -14,6 +14,8 @@ Deckhand core is intentionally topology-neutral. Integrations are explicit, vers
 
 The initial public ecosystem is `dh-plugin-template`, `dh-http-status`, and `dh-pack-homelab`. Additional integrations should not receive repositories until their contract and ownership are concrete.
 
+Solution packs are described by `packages/contracts/solution-pack.schema.json`. A pack pins required plugin versions, names its logical profiles, and references example activation, lock, and policy artifacts. It is composition—not executable code—and cannot grant authority beyond the private deployment's policy.
+
 ## Runtime loading
 
 1. The broker reads `config/plugins.yaml`. A missing file enables only `dh-core`.

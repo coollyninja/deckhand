@@ -28,6 +28,12 @@ Plugin repositories use `dh-<slug>` names, expose the `deckhand.plugins` Python 
 
 Site topology belongs in an untracked `config/plugins.yaml` or a private deployment repository. Public solution packs contain logical aliases and placeholders only. See [Plugin architecture](docs/plugin-architecture.md).
 
+The initial public ecosystem is:
+
+- [`dh-http-status`](https://github.com/coollyninja/dh-http-status), the first independently installed read-only provider;
+- [`dh-plugin-template`](https://github.com/coollyninja/dh-plugin-template), a working GitHub template and conformance starter;
+- [`dh-pack-homelab`](https://github.com/coollyninja/dh-pack-homelab), a topology-neutral observability composition.
+
 ## Development
 
 Requirements: Python 3.12+, `uv`, Node.js 22+, pnpm 10+, and OPA for policy tests.
