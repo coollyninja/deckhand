@@ -1,21 +1,21 @@
 {
-  "id": "status.lab.summary",
+  "id": "test.resource.observe",
   "version": 1,
-  "title": "Lab status",
-  "description": "Read the normalized lab health summary without changing target state.",
+  "title": "Observe test resource",
+  "description": "Return deterministic observed state for a topology-neutral test resource.",
   "risk_class": "read",
-  "adapter": "fake",
-  "target_types": ["lab"],
+  "plugin": "dh-core",
+  "adapter": "dh-core.fake",
+  "target_types": ["resource"],
   "parameter_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": false,
     "properties": {}
   },
-  "policy_action": "status.lab.read",
+  "policy_action": "test.resource.read",
   "confirmation": "none",
   "timeout_seconds": 10,
   "idempotency": "observation",
   "mutation": false
 }
-

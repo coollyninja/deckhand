@@ -19,14 +19,14 @@ test_read_allowed_from_tailnet if {
 
 test_mutation_denied_by_default if {
 	not allow with input as {
-		"action": {"id": "pve.vm.ensure_running", "risk_class": "reversible", "mutation": true, "confirmation": "policy"},
+		"action": {"id": "test.resource.ensure_active", "risk_class": "reversible", "mutation": true, "confirmation": "policy"},
 		"subject": {"name": "bobby", "device": "mac", "channel": "tailscale"},
 		"runtime": {"mutations_enabled": false, "audit_writable": true},
 		"target": {"id": "210", "protected": false},
 		"confirmation": {"valid": true, "request_digest": "x"},
 		"request": {"digest": "x"},
 	}
-		with data.inventory as {"operators": ["bobby"], "managed_devices": ["mac"], "allowed_targets": {"pve.vm.ensure_running": ["210"]}}
+		with data.inventory as {"operators": ["operator"], "managed_devices": ["device"], "allowed_targets": {"test.resource.ensure_active": ["example"]}}
 }
 
 test_decision_is_structured if {

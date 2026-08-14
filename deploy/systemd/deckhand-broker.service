@@ -13,7 +13,8 @@ ExecStart=/opt/deckhand/.venv/bin/deckhand-api
 Environment=DECKHAND_BIND_HOST=127.0.0.1
 Environment=DECKHAND_DATABASE_PATH=/var/lib/deckhand/deckhand.db
 Environment=DECKHAND_CATALOG_PATH=/etc/deckhand/catalog
-Environment=DECKHAND_INVENTORY_PATH=/etc/deckhand/inventory.yaml
+Environment=DECKHAND_PLUGIN_CONFIG_PATH=/etc/deckhand/plugins.yaml
+Environment=DECKHAND_PLUGIN_LOCK_PATH=/etc/deckhand/plugins.lock.yaml
 Environment=DECKHAND_PROXY_ASSERTION_FILE=%d/proxy-assertion
 LoadCredential=proxy-assertion:/etc/deckhand/secrets/proxy-assertion
 NoNewPrivileges=yes

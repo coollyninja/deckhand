@@ -9,13 +9,14 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from prometheus_client import make_asgi_app
 
-from .adapters import AdapterRegistry, DisabledMutationAdapter, FakeAdapter
+from .adapters import AdapterRegistry
 from .catalog import Catalog, CatalogError
 from .config import Settings
 from .digests import request_digest
-from .inventory import load_inventory
+from .extensions import load_catalog, load_extensions
 from .metrics import JOBS_SUBMITTED, POLICY_DECISIONS, STATUS_OBSERVATION_SECONDS
 from .models import ActionDefinition, ActionRequest, JobView, PlanView, StatusValue, Subject
+from .plugin_api import PluginManifest
 from .policy import OpaPolicyEngine, PolicyEngine, PolicyUnavailable
 from .status import StatusAggregator
 from .store import Store, StoreError
@@ -40,15 +41,11 @@ def create_app(
     adapters: AdapterRegistry | None = None,
 ) -> FastAPI:
     configured = settings or Settings()
-    catalog = Catalog.from_path(configured.catalog_path)
+    extensions = load_extensions(configured)
+    catalog = load_catalog(configured, extensions)
     store = Store(configured.database_path)
     policy_engine = policy or OpaPolicyEngine(configured.opa_url, configured.opa_decision_path)
-    adapter_registry = adapters or AdapterRegistry(
-        {
-            "fake": FakeAdapter(),
-            "proxmox": DisabledMutationAdapter("proxmox"),
-        }
-    )
+    adapter_registry = adapters or extensions.adapters
     runtime = Runtime(
         settings=configured,
         catalog=catalog,
@@ -56,7 +53,7 @@ def create_app(
         policy=policy_engine,
         adapters=adapter_registry,
         worker=Worker(configured.worker_id, store, catalog, adapter_registry),
-        status=StatusAggregator.from_inventory(load_inventory(configured.inventory_path)),
+        status=extensions.status,
     )
 
     @asynccontextmanager
@@ -161,6 +158,12 @@ def create_app(
         _: Annotated[Subject, Depends(authenticated_subject)],
     ) -> list[dict[str, object]]:
         return runtime.catalog.serializable()
+
+    @app.get("/v1/plugins", response_model=list[PluginManifest])
+    async def plugins(
+        _: Annotated[Subject, Depends(authenticated_subject)],
+    ) -> tuple[PluginManifest, ...]:
+        return extensions.manifests
 
     @app.get("/v1/status/summary")
     async def status_summary(

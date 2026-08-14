@@ -18,13 +18,12 @@ class Catalog:
             raise CatalogError("duplicate action ID/version")
 
     @classmethod
-    def from_path(cls, path: Path) -> "Catalog":
-        actions: list[ActionDefinition] = []
-        for file in sorted(path.glob("*.json")):
-            raw = json.loads(file.read_text(encoding="utf-8"))
-            actions.append(ActionDefinition.model_validate(raw))
-        if not actions:
-            raise CatalogError(f"no action definitions in {path}")
+    def from_path(cls, path: Path, *, additional: tuple[ActionDefinition, ...] = ()) -> "Catalog":
+        actions = list(additional)
+        if path.exists():
+            for file in sorted(path.glob("*.json")):
+                raw = json.loads(file.read_text(encoding="utf-8"))
+                actions.append(ActionDefinition.model_validate(raw))
         return cls(actions)
 
     def list_actions(self) -> list[ActionDefinition]:

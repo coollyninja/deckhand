@@ -23,6 +23,7 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy apps/broker/src apps/macos-agent/src
+      - run: uv run python scripts/check_public_surface.py
       - run: uv run pytest --cov-report=xml --cov-fail-under=70
 
   policy:

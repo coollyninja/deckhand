@@ -15,7 +15,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     assertion_file.write_text("test-proxy-assertion", encoding="utf-8")
     settings = Settings(
         database_path=tmp_path / "deckhand.db",
-        catalog_path=root / "packages/catalog/actions",
+        catalog_path=root / "apps/broker/tests/fixtures/catalog",
         trusted_proxy=True,
         proxy_assertion_file=assertion_file,
         allow_mutations=False,

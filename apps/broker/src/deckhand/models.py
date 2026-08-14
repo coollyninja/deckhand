@@ -86,7 +86,10 @@ class ActionDefinition(StrictModel):
     title: str = Field(min_length=1, max_length=128)
     description: str = Field(min_length=1, max_length=1024)
     risk_class: RiskClass
-    adapter: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    plugin: str = Field(pattern=r"^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+    adapter: str = Field(
+        pattern=r"^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$"
+    )
     target_types: list[str] = Field(min_length=1)
     parameter_schema: dict[str, Any]
     policy_action: str

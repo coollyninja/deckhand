@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     bind_port: int = Field(default=19470, ge=1024, le=65535)
     database_path: Path = Path("deckhand.db")
     catalog_path: Path = Path("packages/catalog/actions")
-    inventory_path: Path = Path("config/inventory.yaml")
+    plugin_config_path: Path = Path("config/plugins.yaml")
+    plugin_lock_path: Path = Path("config/plugins.lock.yaml")
+    allow_external_plugins: bool = False
     opa_url: str = "http://127.0.0.1:8181"
     opa_decision_path: str = "/v1/data/deckhand/authz/decision"
     trusted_proxy: bool = False

@@ -13,9 +13,9 @@ from deckhand.store import Store
 
 def action_request() -> ActionRequest:
     return ActionRequest(
-        action_id="pve.vm.ensure_running",
+        action_id="test.resource.ensure_active",
         action_version=1,
-        target=Target(type="pve_vm", id="210"),
+        target=Target(type="resource", id="example"),
         context=RequestContext(client="test"),
         idempotency_key=uuid4(),
     )
