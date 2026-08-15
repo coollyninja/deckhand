@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckhand.invalid/schemas/plugin-configuration.schema.json",
+  "title": "Deckhand plugin activation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plugins"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "plugins": {
+      "type": "object",
+      "propertyNames": {"pattern": "^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {"type": "boolean", "default": true},
+          "config": {"type": "object", "default": {}},
+          "runtime": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "timeout_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 300,
+                "default": 10
+              },
+              "max_concurrency": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256,
+                "default": 8
+              },
+              "requests_per_second": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 10000,
+                "default": 20
+              },
+              "burst": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000,
+                "default": 20
+              },
+              "failure_threshold": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 5
+              },
+              "recovery_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 3600,
+                "default": 30
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

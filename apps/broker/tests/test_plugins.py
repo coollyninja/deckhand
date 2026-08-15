@@ -63,6 +63,13 @@ def test_missing_configuration_defaults_to_core(tmp_path: Path) -> None:
     assert list(loaded.plugins) == ["dh-core"]
 
 
+def test_plugin_runtime_policy_is_strictly_validated() -> None:
+    with pytest.raises(ValueError):
+        PluginConfiguration.model_validate(
+            {"plugins": {"dh-core": {"runtime": {"max_concurrency": 0, "unknown": True}}}}
+        )
+
+
 class IncompleteAdapter:
     async def plan(self, action: Any, request: Any) -> Any:
         return None

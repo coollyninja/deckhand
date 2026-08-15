@@ -3,3 +3,10 @@ plugins:
   dh-core:
     enabled: true
     config: {}
+    runtime:
+      timeout_seconds: 10
+      max_concurrency: 8
+      requests_per_second: 20
+      burst: 20
+      failure_threshold: 5
+      recovery_seconds: 30

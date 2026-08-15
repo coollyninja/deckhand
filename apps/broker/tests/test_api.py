@@ -40,6 +40,21 @@ def test_plugin_health_reports_adapter_lifecycle(
     assert response.json()["dh-core.disabled"]["state"] == "unavailable"
 
 
+def test_plugin_resilience_requires_identity_and_reports_limits(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    assert client.get("/v1/plugins/resilience").status_code == 401
+    response = client.get("/v1/plugins/resilience", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["dh-core"] == {
+        "state": "closed",
+        "consecutive_failures": 0,
+        "retry_after_seconds": None,
+        "max_concurrency": 8,
+        "requests_per_second": 20.0,
+    }
+
+
 def test_tailscale_identity_requires_unspoofable_app_capability(client: TestClient) -> None:
     headers = {
         "Tailscale-User-Login": "operator@example.com",

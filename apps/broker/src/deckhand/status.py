@@ -1,3 +1,4 @@
+import asyncio
 from typing import Protocol, runtime_checkable
 
 from .adapters import AdapterError
@@ -27,8 +28,14 @@ class StatusAggregator:
             return StatusValue(
                 state="unavailable",
                 stale_after_seconds=1,
-                details={"error_code": error.kind.value, "retry": error.retry.value},
+                details={
+                    **error.details,
+                    "error_code": error.kind.value,
+                    "retry": error.retry.value,
+                },
             )
 
     async def summary(self) -> dict[str, StatusValue]:
-        return {name: await self.domain(name) for name in sorted(self.providers)}
+        names = sorted(self.providers)
+        values = await asyncio.gather(*(self.domain(name) for name in names))
+        return dict(zip(names, values, strict=True))
