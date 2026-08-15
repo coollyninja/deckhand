@@ -21,6 +21,12 @@ from .plugin_api import (
     PluginManifest,
     PluginPermissions,
 )
+from .resilience import (
+    ResilienceGuard,
+    ResiliencePolicy,
+    ResilientAdapter,
+    ResilientStatusProvider,
+)
 from .status import StatusAggregator, StatusProvider
 
 
@@ -31,6 +37,7 @@ class PluginError(RuntimeError):
 class PluginActivation(StrictModel):
     enabled: bool = True
     config: dict[str, Any] = Field(default_factory=dict)
+    runtime: ResiliencePolicy = Field(default_factory=ResiliencePolicy)
 
 
 class PluginConfiguration(StrictModel):
@@ -62,6 +69,7 @@ class LoadedPlugins:
     adapters: AdapterRegistry
     status: StatusAggregator
     actions: tuple[ActionDefinition, ...]
+    resilience: Mapping[str, ResilienceGuard]
 
 
 PluginFactory = Callable[[], DeckhandPlugin]
@@ -73,7 +81,7 @@ class CorePlugin:
         return PluginManifest(
             id="dh-core",
             name="Deckhand Core Development Adapter",
-            version="0.3.0",
+            version="0.4.0",
             description="Topology-neutral deterministic adapters for development and tests.",
             adapters=["dh-core.fake", "dh-core.disabled"],
             permissions=PluginPermissions(mutation=False),
@@ -97,7 +105,7 @@ def default_plugin_configuration() -> PluginConfiguration:
 
 
 def default_plugin_lock() -> PluginLock:
-    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.3.0", source="builtin")])
+    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.4.0", source="builtin")])
 
 
 def _load_yaml_mapping(path: Path, description: str) -> dict[str, Any]:
@@ -152,6 +160,7 @@ class PluginManager:
         adapters: dict[str, Adapter] = {}
         status_providers: dict[str, StatusProvider] = {}
         actions: list[ActionDefinition] = []
+        resilience: dict[str, ResilienceGuard] = {}
 
         for plugin_id, activation in sorted(configuration.plugins.items()):
             if not activation.enabled:
@@ -170,7 +179,17 @@ class PluginManager:
                 detail = "; ".join(error.message for error in errors)
                 raise PluginError(f"invalid configuration for {plugin_id}: {detail}")
             contribution = plugin.build(PluginContext(config=activation.config))
-            self._merge(plugin_id, manifest, contribution, adapters, status_providers, actions)
+            guard = ResilienceGuard(plugin_id, activation.runtime)
+            self._merge(
+                plugin_id,
+                manifest,
+                contribution,
+                adapters,
+                status_providers,
+                actions,
+                guard,
+            )
+            resilience[plugin_id] = guard
             manifests.append(manifest)
 
         return LoadedPlugins(
@@ -178,6 +197,7 @@ class PluginManager:
             adapters=AdapterRegistry(adapters),
             status=StatusAggregator(status_providers),
             actions=tuple(actions),
+            resilience=resilience,
         )
 
     def _instantiate(self, lock: PluginLockEntry, *, allow_external: bool) -> DeckhandPlugin:
@@ -230,6 +250,7 @@ class PluginManager:
         adapters: dict[str, Adapter],
         status_providers: dict[str, StatusProvider],
         actions: list[ActionDefinition],
+        guard: ResilienceGuard,
     ) -> None:
         if set(contribution.adapters) != set(manifest.adapters):
             raise PluginError(f"plugin {plugin_id!r} adapter contribution differs from manifest")
@@ -250,13 +271,13 @@ class PluginManager:
                 raise PluginError(
                     f"adapter {name!r} does not implement the complete lifecycle contract"
                 )
-            adapters[name] = adapter
+            adapters[name] = ResilientAdapter(adapter, guard)
         for name, provider in contribution.status_providers.items():
             if name in status_providers:
                 raise PluginError(f"status provider {name!r} is contributed more than once")
             if not isinstance(provider, StatusProvider):
                 raise PluginError(f"status provider {name!r} does not implement observe")
-            status_providers[name] = provider
+            status_providers[name] = ResilientStatusProvider(provider, guard)
         known_actions = {action.id for action in actions}
         if any(action.id in known_actions for action in contribution.actions):
             raise PluginError(f"plugin {plugin_id!r} contributes a duplicate action ID")

@@ -12,7 +12,7 @@ Deckhand core is intentionally topology-neutral. Integrations are explicit, vers
 | `dh-pack-<solution>` | Declarative composition and profile examples | Yes by default |
 | `deckhand-site-<site>` | Real topology, allowlists, deployment bindings | No |
 
-The initial public ecosystem is `dh-plugin-template`, `dh-http-status`, and `dh-pack-homelab`. Additional integrations should not receive repositories until their contract and ownership are concrete.
+The initial public ecosystem is `dh-plugin-template`, `dh-http-status`, `dh-proxmox`, and `dh-pack-homelab`. Additional integrations should not receive repositories until their contract and ownership are concrete.
 
 Solution packs are described by `packages/contracts/solution-pack.schema.json`. A pack pins required plugin versions, names its logical profiles, and references example activation, lock, and policy artifacts. It is composition—not executable code—and cannot grant authority beyond the private deployment's policy.
 
@@ -26,7 +26,7 @@ Solution packs are described by `packages/contracts/solution-pack.schema.json`. 
 6. The contribution merger rejects undeclared adapters, cross-plugin action ownership, duplicate components, and action-to-adapter mismatches.
 7. Catalog loading rejects actions whose plugins or adapters are unavailable.
 
-The API exposes the active sanitized manifests at `GET /v1/plugins`. Configuration values, credential references, and lock digests are not returned.
+The API exposes the active sanitized manifests at `GET /v1/plugins`. Configuration values, credential references, and lock digests are not returned. `packages/contracts/plugin-configuration.schema.json` publishes the activation and runtime-policy shape.
 
 ## Manifest contract
 
@@ -44,6 +44,12 @@ Plugin API v1 is stable for the trusted in-process tier. Adapters implement `hea
 Errors declare a bounded kind, retry disposition, reconciliation requirement, and sanitized details. Plugins never select job states or access the durable store. See [ADR-0002](adr/0002-stable-plugin-lifecycle.md) and `packages/contracts/adapter-lifecycle.schema.json`.
 
 Authenticated operators can inspect normalized adapter health at `GET /v1/plugins/health` and request cancellation at `POST /v1/jobs/{job_id}:cancel`. Cancellation is subject/device-bound and never converts an unknown or unsupported outcome into success.
+
+## Read-plane resilience
+
+The plugin manager wraps every contributed adapter and status provider with one shared per-plugin guard. The guard enforces a total call deadline, maximum concurrency, token-bucket rate and burst, transient-failure circuit breaker, and single half-open recovery probe. This central placement gives workers, reconciliation, cancellation, status aggregation, and future clients the same behavior without changing plugin implementations.
+
+Unexpected exceptions are sanitized. A timeout after mutation dispatch becomes `UnknownOutcome`; pre-dispatch and read timeouts remain safely retryable. Bounded-label Prometheus metrics cover outcomes, latency, local queueing, in-flight work, and circuit state. Authenticated operators can inspect sanitized snapshots at `GET /v1/plugins/resilience`. See [ADR-0003](adr/0003-read-plane-resilience.md).
 
 ## Configuration and secrets
 

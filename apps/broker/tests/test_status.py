@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from deckhand.adapters import AdapterError, AdapterErrorKind
 from deckhand.models import RetryDisposition, StatusValue
@@ -36,3 +38,20 @@ async def test_provider_error_is_normalized_without_leaking_message() -> None:
     value = await aggregator.domain("example")
     assert value.state == "unavailable"
     assert value.details == {"error_code": "unavailable", "retry": "safe"}
+
+
+class DelayedProvider:
+    async def observe(self) -> StatusValue:
+        await asyncio.sleep(0.02)
+        return StatusValue(state="healthy")
+
+
+@pytest.mark.asyncio
+async def test_summary_observes_independent_domains_concurrently() -> None:
+    aggregator = StatusAggregator(
+        {"one": DelayedProvider(), "two": DelayedProvider(), "three": DelayedProvider()}
+    )
+    started = asyncio.get_running_loop().time()
+    summary = await aggregator.summary()
+    assert asyncio.get_running_loop().time() - started < 0.05
+    assert set(summary) == {"one", "two", "three"}

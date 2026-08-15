@@ -13,6 +13,7 @@ The implementation currently includes:
 - a catalog loader and deterministic fake adapter for development;
 - a versioned plugin ABI, explicit activation configuration, and fail-closed plugin lock;
 - a stable six-operation adapter lifecycle with structured errors, observation-before-success, reconciliation, health, and cancellation;
+- central per-plugin deadlines, concurrency/rate limits, circuit breakers, sanitized exception handling, and resilience metrics;
 - deny-by-default OPA policy and policy tests;
 - leased durable worker execution and postcondition verification;
 - normalized, explicitly stale/unconfigured status aggregation;
@@ -32,6 +33,7 @@ Site topology belongs in an untracked `config/plugins.yaml` or a private deploym
 The initial public ecosystem is:
 
 - [`dh-http-status`](https://github.com/coollyninja/dh-http-status), the first independently installed read-only provider;
+- [`dh-proxmox`](https://github.com/coollyninja/dh-proxmox), read-only Proxmox cluster, node, QEMU, and LXC observation;
 - [`dh-plugin-template`](https://github.com/coollyninja/dh-plugin-template), a working GitHub template and conformance starter;
 - [`dh-pack-homelab`](https://github.com/coollyninja/dh-pack-homelab), a topology-neutral observability composition.
 

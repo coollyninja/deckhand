@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from prometheus_client import make_asgi_app
 
-from .adapters import AdapterHealth, AdapterRegistry
+from .adapters import AdapterError, AdapterHealth, AdapterRegistry
 from .cancellation import CancellationError, Canceller
 from .catalog import Catalog, CatalogError
 from .config import Settings
@@ -19,6 +19,7 @@ from .metrics import JOBS_SUBMITTED, POLICY_DECISIONS, STATUS_OBSERVATION_SECOND
 from .models import ActionDefinition, ActionRequest, JobView, PlanView, StatusValue, Subject
 from .plugin_api import PluginManifest
 from .policy import OpaPolicyEngine, PolicyEngine, PolicyUnavailable
+from .resilience import ResilienceSnapshot
 from .status import StatusAggregator
 from .store import Store, StoreError
 from .worker import Worker
@@ -65,7 +66,7 @@ def create_app(
         runtime.store.initialize()
         yield
 
-    app = FastAPI(title="Deckhand Broker", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Deckhand Broker", version="0.4.0", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/metrics", make_asgi_app())
 
@@ -175,6 +176,15 @@ def create_app(
     ) -> dict[str, AdapterHealth]:
         return await runtime.adapters.health()
 
+    @app.get("/v1/plugins/resilience", response_model=dict[str, ResilienceSnapshot])
+    async def plugin_resilience(
+        _: Annotated[Subject, Depends(authenticated_subject)],
+    ) -> dict[str, ResilienceSnapshot]:
+        return {
+            plugin_id: await guard.snapshot()
+            for plugin_id, guard in sorted(extensions.resilience.items())
+        }
+
     @app.get("/v1/status/summary")
     async def status_summary(
         _: Annotated[Subject, Depends(authenticated_subject)],
@@ -215,6 +225,11 @@ def create_app(
             ).inc()
         except CatalogError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+        except AdapterError as error:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                {"code": error.kind.value, "retry": error.retry.value},
+            ) from None
         except PolicyUnavailable as error:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error)) from error
 
