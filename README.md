@@ -35,6 +35,7 @@ The initial public ecosystem is:
 - [`dh-http-status`](https://github.com/coollyninja/dh-http-status), the first independently installed read-only provider;
 - [`dh-proxmox`](https://github.com/coollyninja/dh-proxmox), read-only Proxmox cluster, node, QEMU, and LXC observation;
 - [`dh-prometheus`](https://github.com/coollyninja/dh-prometheus), read-only scalar, alert, and scrape-target observation;
+- [`dh-tailscale`](https://github.com/coollyninja/dh-tailscale), read-only fleet, stale-device, and key-expiry observation through fixed least-privilege API access;
 - [`dh-plugin-template`](https://github.com/coollyninja/dh-plugin-template), a working GitHub template and conformance starter;
 - [`dh-pack-homelab`](https://github.com/coollyninja/dh-pack-homelab), a topology-neutral observability composition.
 
