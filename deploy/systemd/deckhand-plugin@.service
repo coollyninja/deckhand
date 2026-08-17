@@ -1,0 +1,52 @@
+[Unit]
+Description=Deckhand isolated plugin sidecar (%i)
+After=network-online.target
+Wants=network-online.target
+Before=deckhand-broker.service deckhand-worker.service
+
+[Service]
+Type=exec
+User=deckhand-%i
+Group=deckhand
+RuntimeDirectory=deckhand/plugins/%i
+RuntimeDirectoryMode=0750
+EnvironmentFile=/etc/deckhand/plugins/%i.runtime
+ExecStart=/opt/deckhand/plugins/%i/current --plugin-id %i --config-path /etc/deckhand/plugins/%i.yaml --artifact-path /opt/deckhand/plugins/%i/current --socket-path /run/deckhand/plugins/%i/plugin.sock --broker-uid ${DECKHAND_BROKER_UID}
+UMask=0007
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+IPAddressDeny=any
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=64
+LimitNOFILE=256
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target

@@ -36,7 +36,7 @@ Built-in plugins are distribution conveniences, not privileged exceptions. They 
 
 ## Current trust tier
 
-Version 0.2 implements the trusted in-process Python entry-point tier. External loading is off by default. Before any third-party or mutation-capable plugin is production-enabled, Deckhand will add the Unix-socket sidecar host, artifact digest verification, per-plugin credential mounts, and egress enforcement described in the threat model.
+Version 0.2 implemented the trusted in-process Python entry-point tier. External loading remains off by default. Version 0.5 adds the Unix-socket sidecar host, signed artifact verification, per-plugin credential boundary, resource controls, and default-deny egress described in [ADR 0004](0004-unix-socket-sidecar-isolation.md). Third-party or mutation-capable plugins must use that tier before production activation.
 
 ## Alternatives rejected
 

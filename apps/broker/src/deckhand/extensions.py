@@ -14,6 +14,7 @@ def load_extensions(settings: Settings) -> LoadedPlugins:
         load_plugin_configuration(settings.plugin_config_path),
         load_plugin_lock(settings.plugin_lock_path),
         allow_external=settings.allow_external_plugins,
+        allow_sidecars=settings.allow_sidecar_plugins,
     )
 
 

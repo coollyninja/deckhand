@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import yaml
 from jsonschema import Draft202012Validator
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .adapters import Adapter, AdapterRegistry, DisabledMutationAdapter, FakeAdapter
 from .models import ActionDefinition, StrictModel
@@ -27,6 +27,7 @@ from .resilience import (
     ResilientAdapter,
     ResilientStatusProvider,
 )
+from .sidecar import SidecarAdapter, SidecarClient, SidecarConnection, SidecarStatusProvider
 from .status import StatusAggregator, StatusProvider
 
 
@@ -34,10 +35,23 @@ class PluginError(RuntimeError):
     pass
 
 
+class PluginRuntime(ResiliencePolicy):
+    mode: Literal["in_process", "sidecar"] = "in_process"
+    sidecar: SidecarConnection | None = None
+
+    @model_validator(mode="after")
+    def validate_isolation_configuration(self) -> PluginRuntime:
+        if self.mode == "sidecar" and self.sidecar is None:
+            raise ValueError("sidecar runtime requires sidecar connection settings")
+        if self.mode == "in_process" and self.sidecar is not None:
+            raise ValueError("in-process runtime cannot declare sidecar settings")
+        return self
+
+
 class PluginActivation(StrictModel):
     enabled: bool = True
     config: dict[str, Any] = Field(default_factory=dict)
-    runtime: ResiliencePolicy = Field(default_factory=ResiliencePolicy)
+    runtime: PluginRuntime = Field(default_factory=PluginRuntime)
 
 
 class PluginConfiguration(StrictModel):
@@ -48,7 +62,7 @@ class PluginConfiguration(StrictModel):
 class PluginLockEntry(StrictModel):
     id: str = Field(pattern=r"^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
     version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
-    source: Literal["builtin", "python"]
+    source: Literal["builtin", "python", "sidecar"]
     digest: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
 
 
@@ -81,7 +95,7 @@ class CorePlugin:
         return PluginManifest(
             id="dh-core",
             name="Deckhand Core Development Adapter",
-            version="0.4.0",
+            version="0.5.0",
             description="Topology-neutral deterministic adapters for development and tests.",
             adapters=["dh-core.fake", "dh-core.disabled"],
             permissions=PluginPermissions(mutation=False),
@@ -105,7 +119,7 @@ def default_plugin_configuration() -> PluginConfiguration:
 
 
 def default_plugin_lock() -> PluginLock:
-    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.4.0", source="builtin")])
+    return PluginLock(plugins=[PluginLockEntry(id="dh-core", version="0.5.0", source="builtin")])
 
 
 def _load_yaml_mapping(path: Path, description: str) -> dict[str, Any]:
@@ -154,6 +168,7 @@ class PluginManager:
         lock: PluginLock,
         *,
         allow_external: bool,
+        allow_sidecars: bool = False,
     ) -> LoadedPlugins:
         locked = lock.by_id()
         manifests: list[PluginManifest] = []
@@ -168,17 +183,33 @@ class PluginManager:
             lock_entry = locked.get(plugin_id)
             if lock_entry is None:
                 raise PluginError(f"enabled plugin {plugin_id!r} is not version-locked")
-            plugin = self._instantiate(lock_entry, allow_external=allow_external)
-            manifest = PluginManifest.model_validate(plugin.manifest)
+            in_process_plugin: DeckhandPlugin | None = None
+            if lock_entry.source == "sidecar":
+                manifest, contribution = self._sidecar(
+                    plugin_id,
+                    activation,
+                    lock_entry,
+                    allow_sidecars=allow_sidecars,
+                )
+            else:
+                if activation.runtime.mode != "in_process":
+                    raise PluginError(
+                        f"plugin {plugin_id!r} lock source does not permit sidecar isolation"
+                    )
+                in_process_plugin = self._instantiate(lock_entry, allow_external=allow_external)
+                manifest = PluginManifest.model_validate(in_process_plugin.manifest)
             self._validate_manifest(plugin_id, manifest, lock_entry)
-            errors = sorted(
-                Draft202012Validator(manifest.config_schema).iter_errors(activation.config),
-                key=lambda item: list(item.path),
-            )
-            if errors:
-                detail = "; ".join(error.message for error in errors)
-                raise PluginError(f"invalid configuration for {plugin_id}: {detail}")
-            contribution = plugin.build(PluginContext(config=activation.config))
+            if lock_entry.source != "sidecar":
+                errors = sorted(
+                    Draft202012Validator(manifest.config_schema).iter_errors(activation.config),
+                    key=lambda item: list(item.path),
+                )
+                if errors:
+                    detail = "; ".join(error.message for error in errors)
+                    raise PluginError(f"invalid configuration for {plugin_id}: {detail}")
+                if in_process_plugin is None:
+                    raise PluginError(f"plugin {plugin_id!r} was not instantiated")
+                contribution = in_process_plugin.build(PluginContext(config=activation.config))
             guard = ResilienceGuard(plugin_id, activation.runtime)
             self._merge(
                 plugin_id,
@@ -198,6 +229,44 @@ class PluginManager:
             status=StatusAggregator(status_providers),
             actions=tuple(actions),
             resilience=resilience,
+        )
+
+    @staticmethod
+    def _sidecar(
+        plugin_id: str,
+        activation: PluginActivation,
+        lock: PluginLockEntry,
+        *,
+        allow_sidecars: bool,
+    ) -> tuple[PluginManifest, PluginContribution]:
+        if not allow_sidecars:
+            raise PluginError(
+                f"sidecar plugin {plugin_id!r} requires DECKHAND_ALLOW_SIDECAR_PLUGINS=true"
+            )
+        if activation.runtime.mode != "sidecar" or activation.runtime.sidecar is None:
+            raise PluginError(f"sidecar plugin {plugin_id!r} requires sidecar runtime settings")
+        if activation.config:
+            raise PluginError(
+                f"sidecar plugin {plugin_id!r} configuration must be delivered to the sidecar"
+            )
+        if lock.digest is None:
+            raise PluginError(f"sidecar plugin {plugin_id!r} requires an artifact digest")
+        try:
+            client = SidecarClient(plugin_id, activation.runtime.sidecar, lock.digest)
+            handshake = client.handshake()
+        except (OSError, ValueError, RuntimeError) as error:
+            raise PluginError(f"sidecar plugin {plugin_id!r} failed secure handshake") from error
+        return (
+            handshake.manifest,
+            PluginContribution(
+                adapters={
+                    name: SidecarAdapter(name, client) for name in handshake.manifest.adapters
+                },
+                status_providers={
+                    name: SidecarStatusProvider(name, client) for name in handshake.status_providers
+                },
+                actions=tuple(handshake.actions),
+            ),
         )
 
     def _instantiate(self, lock: PluginLockEntry, *, allow_external: bool) -> DeckhandPlugin:
