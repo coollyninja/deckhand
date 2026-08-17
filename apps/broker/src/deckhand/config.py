@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     plugin_config_path: Path = Path("config/plugins.yaml")
     plugin_lock_path: Path = Path("config/plugins.lock.yaml")
     allow_external_plugins: bool = False
+    allow_sidecar_plugins: bool = False
     opa_url: str = "http://127.0.0.1:8181"
     opa_decision_path: str = "/v1/data/deckhand/authz/decision"
     trusted_proxy: bool = False

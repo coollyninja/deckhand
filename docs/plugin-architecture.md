@@ -26,7 +26,15 @@ Solution packs are described by `packages/contracts/solution-pack.schema.json`. 
 6. The contribution merger rejects undeclared adapters, cross-plugin action ownership, duplicate components, and action-to-adapter mismatches.
 7. Catalog loading rejects actions whose plugins or adapters are unavailable.
 
-The API exposes the active sanitized manifests at `GET /v1/plugins`. Configuration values, credential references, and lock digests are not returned. `packages/contracts/plugin-configuration.schema.json` publishes the activation and runtime-policy shape.
+The API exposes the active sanitized manifests at `GET /v1/plugins`. Configuration values, credential references, lock digests, socket paths, trust paths, and peer UIDs are not returned. `packages/contracts/plugin-configuration.schema.json` publishes the activation, resilience, and isolation shape.
+
+## Isolation tiers
+
+`in_process` is the default and remains appropriate only for curated read-only code. `sidecar` is mandatory for third-party or mutation-capable plugins. It is separately disabled by default with `DECKHAND_ALLOW_SIDECAR_PLUGINS=false`.
+
+The sidecar runtime never imports the plugin distribution into the broker. It verifies the locked SHA-256 digest and Ed25519 signature, authenticates both Unix peers, performs a strict handshake, then contributes proxy adapters and status providers behind the normal registry. Plugin-specific configuration and credentials are passed only to the independently supervised sidecar. See [ADR 0004](adr/0004-unix-socket-sidecar-isolation.md).
+
+Public deployment assets default each sidecar to no network access and bounded CPU, memory, processes, file descriptors, filesystems, devices, namespaces, and syscalls. A private site overlay supplies a service account, broker UID, systemd credentials, and exact `IPAddressAllow=` entries corresponding to reviewed logical egress bindings. These enforcement bindings never belong in a public plugin or pack.
 
 ## Manifest contract
 
@@ -67,5 +75,5 @@ Private site configuration selects plugins and binds logical aliases. Secret val
 - Action definitions retain immutable integer versions.
 - Plugin releases follow semantic versioning.
 - The lock records exact versions; deployment promotion updates the lock intentionally.
-- CI runs the same conformance suite against bundled and external plugins.
+- CI runs the same lifecycle contract through bundled, external in-process, and sidecar proxy paths.
 - Additive model fields are backward-compatible within API v1. Removing lifecycle methods, changing enum meaning, or changing required fields requires a new plugin API version.

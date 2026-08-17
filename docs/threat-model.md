@@ -17,7 +17,7 @@ Deckhand protects infrastructure credentials, action authority, operator/device 
 
 | Threat | Controls | Required evidence |
 |---|---|---|
-| Malicious/buggy plugin | no infrastructure credentials, strict schemas, catalog allowlists, policy | unknown action/field tests; secret scan |
+| Malicious/buggy plugin | signed/digested sidecar artifact, peer-authenticated Unix socket, strict bounded protocol, per-plugin credentials, service resource limits, default-deny egress | tamper/peer/frame/secret-field tests; lifecycle proxy tests; unit hardening review |
 | Spoofed proxy headers | loopback listener, proxy assertion, Serve-stripped identity headers, app capabilities, mTLS | direct/spoof tests return 401 |
 | Accidental press | ensure-state semantics, exact-request confirmation, separate danger UI | confirmation binding/replay tests |
 | Replay/race | UUID idempotency, request digest, single-use token, immediate transaction | concurrency and changed-request tests |
@@ -37,4 +37,3 @@ Deckhand protects infrastructure credentials, action authority, operator/device 
 - App capability data is authored in Tailnet grants and injected by Serve; clients cannot supply it directly.
 - Production OPA data contains explicit operators, managed devices, and per-action target allowlists.
 - A separate administrator endpoint and PiKVM/Proxmox console can recover the broker VM.
-

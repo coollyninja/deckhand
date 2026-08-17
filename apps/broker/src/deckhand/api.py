@@ -66,7 +66,7 @@ def create_app(
         runtime.store.initialize()
         yield
 
-    app = FastAPI(title="Deckhand Broker", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="Deckhand Broker", version="0.5.0", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/metrics", make_asgi_app())
 

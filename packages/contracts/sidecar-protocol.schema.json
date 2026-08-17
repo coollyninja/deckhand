@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckhand.invalid/schemas/sidecar-protocol.schema.json",
+  "title": "Deckhand sidecar protocol v1 envelopes",
+  "$defs": {
+    "plugin_id": {
+      "type": "string",
+      "pattern": "^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "plugin_id", "operation", "payload"],
+      "properties": {
+        "protocol_version": {"const": 1},
+        "request_id": {"type": "string", "format": "uuid"},
+        "plugin_id": {"$ref": "#/$defs/plugin_id"},
+        "operation": {
+          "enum": [
+            "handshake",
+            "health",
+            "plan",
+            "execute",
+            "observe",
+            "verify",
+            "cancel",
+            "status.observe"
+          ]
+        },
+        "payload": {"type": "object"}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "retry", "reconciliation_required"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "configuration",
+            "authentication",
+            "authorization",
+            "not_found",
+            "conflict",
+            "rate_limited",
+            "unavailable",
+            "timeout",
+            "protocol",
+            "unexpected"
+          ]
+        },
+        "retry": {"enum": ["never", "safe", "reconcile_first"]},
+        "reconciliation_required": {"type": "boolean"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "ok", "result", "error"],
+      "properties": {
+        "protocol_version": {"const": 1},
+        "request_id": {"type": "string", "format": "uuid"},
+        "ok": {"type": "boolean"},
+        "result": {"type": ["object", "null"]},
+        "error": {"oneOf": [{"$ref": "#/$defs/failure"}, {"type": "null"}]}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {"const": true},
+            "result": {"type": "object"},
+            "error": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "ok": {"const": false},
+            "result": {"type": "null"},
+            "error": {"$ref": "#/$defs/failure"}
+          }
+        }
+      ]
+    },
+    "handshake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "plugin_id",
+        "artifact_digest",
+        "manifest",
+        "actions",
+        "status_providers"
+      ],
+      "properties": {
+        "protocol_version": {"const": 1},
+        "plugin_id": {"$ref": "#/$defs/plugin_id"},
+        "artifact_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "manifest": {"type": "object"},
+        "actions": {"type": "array", "maxItems": 1024, "items": {"type": "object"}},
+        "status_providers": {
+          "type": "array",
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/response"},
+    {"$ref": "#/$defs/handshake"}
+  ]
+}

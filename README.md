@@ -28,7 +28,7 @@ No production mutation is enabled by default.
 
 Plugin repositories use `dh-<slug>` names, expose the `deckhand.plugins` Python entry point, and namespace runtime components as `dh-<slug>.<component>`. Built-in and external plugins pass through the same manifest, configuration-schema, version-lock, and contribution validation. External plugin loading is disabled unless `DECKHAND_ALLOW_EXTERNAL_PLUGINS=true`.
 
-Site topology belongs in an untracked `config/plugins.yaml` or a private deployment repository. Public solution packs contain logical aliases and placeholders only. See [Plugin architecture](docs/plugin-architecture.md).
+Site topology belongs in an untracked `config/plugins.yaml` or a private deployment repository. Public solution packs contain logical aliases and placeholders only. Trusted read-only plugins may run in process; third-party and mutation-capable plugins use the signed, peer-authenticated Unix-socket sidecar with per-plugin credentials, resource limits, and default-deny egress. See [Plugin architecture](docs/plugin-architecture.md).
 
 The initial public ecosystem is:
 
