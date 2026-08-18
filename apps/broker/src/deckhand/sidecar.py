@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
 
 from .adapters import (
     Adapter,
@@ -383,7 +383,16 @@ class SidecarClient:
             active_writer.write(_encode_frame(request, self.connection.max_frame_bytes))
             await active_writer.drain()
             raw = await _read_frame(reader, self.connection.max_frame_bytes)
-            response = SidecarResponse.model_validate(raw)
+            try:
+                response = SidecarResponse.model_validate(raw)
+            except ValidationError as error:
+                # A malformed response frame after a possibly-started mutation must
+                # be a transport-level unknown, not a hard failure -- otherwise the
+                # mutation path would record FAILED and skip reconciliation.
+                raise SidecarTransportError(
+                    "sidecar response failed schema validation",
+                    kind=AdapterErrorKind.PROTOCOL,
+                ) from error
             return self._unwrap(request, response)
         except AdapterError:
             raise
@@ -473,7 +482,18 @@ class SidecarAdapter:
         payload: dict[str, Any],
         model: type[T],
     ) -> T:
-        return model.model_validate(await self.client.call(operation, payload))
+        raw = await self.client.call(operation, payload)
+        try:
+            return model.model_validate(raw)
+        except ValidationError as error:
+            # A well-framed response whose result body does not match the expected
+            # lifecycle model is a protocol-level transport error, so the mutation
+            # wrappers classify it as UNKNOWN_OUTCOME rather than letting a raw
+            # ValidationError escape untyped.
+            raise SidecarTransportError(
+                f"sidecar {operation.value} result failed schema validation",
+                kind=AdapterErrorKind.PROTOCOL,
+            ) from error
 
     async def health(self) -> AdapterHealth:
         return await self._model(

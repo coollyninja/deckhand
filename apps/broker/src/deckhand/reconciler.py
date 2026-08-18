@@ -5,15 +5,22 @@ from .store import Store
 
 
 class Reconciler:
-    def __init__(self, store: Store, catalog: Catalog, adapters: AdapterRegistry) -> None:
+    def __init__(
+        self,
+        store: Store,
+        catalog: Catalog,
+        adapters: AdapterRegistry,
+        max_attempts: int = 10,
+    ) -> None:
         self.store = store
         self.catalog = catalog
         self.adapters = adapters
+        self.max_attempts = max_attempts
 
     async def run_once(self) -> list[JobView]:
         self.store.expire_leases()
         reconciled: list[JobView] = []
-        for job in self.store.list_jobs(JobState.UNKNOWN_OUTCOME):
+        for job in self.store.claim_reconcile_candidates(self.max_attempts):
             request, _ = self.store.get_job_context(job.id)
             action = self.catalog.validate_request(request)
             adapter = self.adapters.get(action.adapter)

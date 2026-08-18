@@ -3,8 +3,9 @@ import hmac
 import json
 import secrets
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,20 @@ class StoreError(RuntimeError):
     pass
 
 
+class StaleLease(StoreError):
+    """Raised when a fenced write is attempted by a holder that no longer owns
+    the job's lease (e.g. a zombie worker whose lease expired and was reclaimed
+    by the reconciler). The caller should abandon the job, not crash."""
+
+
+@dataclass(frozen=True)
+class ClaimedJob:
+    """A leased job plus the fencing token its holder must present on writes."""
+
+    job: JobView
+    lease_token: str
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -39,7 +54,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   subject_json TEXT NOT NULL,
   state TEXT NOT NULL,
   lease_owner TEXT,
+  lease_token TEXT,
   lease_expires_at TEXT,
+  reconcile_attempts INTEGER NOT NULL DEFAULT 0,
   result_json TEXT,
   error TEXT,
   created_at TEXT NOT NULL,
@@ -92,6 +109,29 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate(connection)
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        """Forward-only, additive column migrations for databases created by an
+        earlier schema. Idempotent: each column is added only if absent. Keeps
+        the raw-sqlite store evolvable without a full migration framework."""
+        additive_columns = {
+            "jobs": {
+                "lease_token": "TEXT",
+                "reconcile_attempts": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "confirmations": {
+                "control": "TEXT",
+            },
+        }
+        for table, columns in additive_columns.items():
+            existing = {
+                row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for column, coltype in columns.items():
+                if column not in existing:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
     def create_job(self, request: ActionRequest, subject: Subject) -> JobView:
         now = datetime.now(UTC).isoformat()
@@ -148,9 +188,20 @@ class Store:
                 Subject.model_validate_json(row["subject_json"]),
             )
 
-    def claim_next_job(self, worker_id: str, lease_seconds: int = 30) -> JobView | None:
+    def claim_next_job(
+        self,
+        worker_id: str,
+        lease_seconds: int = 30,
+        lease_for: "Callable[[ActionRequest], int] | None" = None,
+    ) -> ClaimedJob | None:
+        """Atomically lease the next QUEUED job. Returns the job view plus a fencing
+        token the caller must present on every subsequent transition; a transition
+        from a holder whose lease was reclaimed is rejected as a StaleLease.
+
+        ``lease_for`` sizes the lease from the CLAIMED job's own request inside the
+        same transaction, avoiding a peek-then-claim race."""
         now = datetime.now(UTC)
-        lease_expiry = now + timedelta(seconds=lease_seconds)
+        lease_token = uuid4().hex
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -161,13 +212,18 @@ class Store:
             ).fetchone()
             if row is None:
                 return None
+            if lease_for is not None:
+                claimed_request = ActionRequest.model_validate_json(row["request_json"])
+                lease_seconds = lease_for(claimed_request)
+            lease_expiry = now + timedelta(seconds=lease_seconds)
             require_transition(JobState(row["state"]), JobState.RUNNING)
             connection.execute(
-                """UPDATE jobs SET state = ?, lease_owner = ?, lease_expires_at = ?, updated_at = ?
-                WHERE id = ?""",
+                """UPDATE jobs SET state = ?, lease_owner = ?, lease_token = ?,
+                lease_expires_at = ?, updated_at = ? WHERE id = ?""",
                 (
                     JobState.RUNNING.value,
                     worker_id,
+                    lease_token,
                     lease_expiry.isoformat(),
                     now.isoformat(),
                     row["id"],
@@ -181,7 +237,29 @@ class Store:
             claimed = connection.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
             if claimed is None:
                 raise StoreError("claimed job disappeared")
-            return self._job_view(claimed)
+            return ClaimedJob(job=self._job_view(claimed), lease_token=lease_token)
+
+    def renew_lease(self, job_id: str, lease_token: str, lease_seconds: int) -> bool:
+        """Extend the lease for a fenced holder; returns False if the lease is no
+        longer held (reclaimed), so a long adapter call can keep its lease alive
+        across execute/observe/verify instead of racing a fixed 30s expiry."""
+        now = datetime.now(UTC)
+        new_expiry = (now + timedelta(seconds=lease_seconds)).isoformat()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """UPDATE jobs SET lease_expires_at = ?, updated_at = ?
+                WHERE id = ? AND lease_token = ? AND state IN (?, ?)""",
+                (
+                    new_expiry,
+                    now.isoformat(),
+                    job_id,
+                    lease_token,
+                    JobState.RUNNING.value,
+                    JobState.VERIFYING.value,
+                ),
+            )
+            return cursor.rowcount == 1
 
     def transition_job(
         self,
@@ -190,27 +268,41 @@ class Store:
         *,
         result: dict[str, Any] | None = None,
         error: JobError | None = None,
+        fence: str | None = None,
+        expected_state: JobState | None = None,
     ) -> JobView:
+        """Transition a job. When ``fence`` is given, the write is applied only if
+        the row still carries that lease token (compare-and-set); a mismatch means
+        the lease was reclaimed and raises StaleLease. When ``expected_state`` is
+        given, the write applies only if the row is still in that state, turning a
+        TOCTOU race into a clean StaleLease rather than a silent wrong-state write.
+        Keeping the lease across the RUNNING->VERIFYING step lets the holder finish
+        observe/verify under the same fence."""
         now = datetime.now(UTC).isoformat()
+        keep_lease = target == JobState.VERIFYING
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if row is None:
                 raise StoreError("job not found")
+            if fence is not None and row["lease_token"] != fence:
+                raise StaleLease(f"lease for {job_id} is no longer held")
+            if expected_state is not None and JobState(row["state"]) != expected_state:
+                raise StaleLease(f"job {job_id} is {row['state']}, expected {expected_state.value}")
             require_transition(JobState(row["state"]), target)
             connection.execute(
                 """UPDATE jobs SET state = ?, result_json = ?, error = ?,
-                lease_owner = CASE WHEN ? = ? THEN lease_owner ELSE NULL END,
-                lease_expires_at = CASE WHEN ? = ? THEN lease_expires_at ELSE NULL END,
+                lease_owner = CASE WHEN ? THEN lease_owner ELSE NULL END,
+                lease_token = CASE WHEN ? THEN lease_token ELSE NULL END,
+                lease_expires_at = CASE WHEN ? THEN lease_expires_at ELSE NULL END,
                 updated_at = ? WHERE id = ?""",
                 (
                     target.value,
                     json.dumps(result, sort_keys=True) if result is not None else None,
                     error.model_dump_json() if error is not None else None,
-                    target.value,
-                    JobState.VERIFYING.value,
-                    target.value,
-                    JobState.VERIFYING.value,
+                    keep_lease,
+                    keep_lease,
+                    keep_lease,
                     now,
                     job_id,
                 ),
@@ -248,8 +340,8 @@ class Store:
                     reconciliation_required=True,
                 )
                 connection.execute(
-                    """UPDATE jobs SET state = ?, lease_owner = NULL, lease_expires_at = NULL,
-                    error = ?, updated_at = ? WHERE id = ?""",
+                    """UPDATE jobs SET state = ?, lease_owner = NULL, lease_token = NULL,
+                    lease_expires_at = NULL, error = ?, updated_at = ? WHERE id = ?""",
                     (
                         JobState.UNKNOWN_OUTCOME.value,
                         failure.model_dump_json(),
@@ -264,6 +356,32 @@ class Store:
                 )
             return len(rows)
 
+    def expire_stale_queued(self, ttl_seconds: int) -> int:
+        """Expire QUEUED jobs older than ttl_seconds so a confirmed intent cannot
+        execute arbitrarily late if the worker was down when it was submitted.
+        Implements the QUEUED->EXPIRED edge the state machine already allows."""
+        now = datetime.now(UTC)
+        cutoff = (now - timedelta(seconds=ttl_seconds)).isoformat()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE state = ? AND created_at < ?",
+                (JobState.QUEUED.value, cutoff),
+            ).fetchall()
+            for row in rows:
+                require_transition(JobState(row["state"]), JobState.EXPIRED)
+                connection.execute(
+                    """UPDATE jobs SET state = ?, lease_owner = NULL, lease_token = NULL,
+                    lease_expires_at = NULL, updated_at = ? WHERE id = ?""",
+                    (JobState.EXPIRED.value, now.isoformat(), row["id"]),
+                )
+                self._append_audit(
+                    connection,
+                    "job.expired",
+                    {"job_id": row["id"], "reason": "queue_ttl"},
+                )
+            return len(rows)
+
     def list_jobs(self, state: JobState, limit: int = 100) -> list[JobView]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -271,6 +389,38 @@ class Store:
                 (state.value, min(limit, 1000)),
             ).fetchall()
             return [self._job_view(row) for row in rows]
+
+    def claim_reconcile_candidates(self, max_attempts: int, limit: int = 100) -> list[JobView]:
+        """Return UNKNOWN_OUTCOME jobs still within the reconcile-attempt budget,
+        atomically incrementing each one's attempt counter. Jobs that reach the
+        budget are audited once as reconcile-exhausted and then skipped, so a
+        permanently-unresolvable job stops churning the audit log and becomes an
+        operator-visible parked job rather than an infinite loop."""
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """SELECT * FROM jobs WHERE state = ?
+                ORDER BY updated_at LIMIT ?""",
+                (JobState.UNKNOWN_OUTCOME.value, min(limit, 1000)),
+            ).fetchall()
+            candidates: list[JobView] = []
+            for row in rows:
+                attempts = row["reconcile_attempts"]
+                if attempts >= max_attempts:
+                    continue
+                new_attempts = attempts + 1
+                connection.execute(
+                    "UPDATE jobs SET reconcile_attempts = ? WHERE id = ?",
+                    (new_attempts, row["id"]),
+                )
+                if new_attempts == max_attempts:
+                    self._append_audit(
+                        connection,
+                        "job.reconcile_exhausted",
+                        {"job_id": row["id"], "attempts": new_attempts},
+                    )
+                candidates.append(self._job_view(row))
+            return candidates
 
     def create_confirmation(
         self,

@@ -7,7 +7,7 @@ from .adapters import (
 )
 from .catalog import Catalog
 from .models import TERMINAL_JOB_STATES, JobError, JobState, JobView, RetryDisposition, Subject
-from .store import Store
+from .store import StaleLease, Store
 
 
 class CancellationError(RuntimeError):
@@ -30,9 +30,26 @@ class Canceller:
         if job.state in TERMINAL_JOB_STATES:
             raise CancellationError(f"job is already {job.state.value}")
         if job.state == JobState.QUEUED:
-            return self.store.transition_job(
-                job.id, JobState.CANCELLED, result=job.result, error=job.error
-            )
+            # Compare-and-set on QUEUED: if a worker claimed this job between our
+            # read and this write, the state is now RUNNING and the guarded write
+            # raises StaleLease instead of silently marking a running mutation
+            # CANCELLED while its adapter call is still in flight. We then re-read
+            # and fall through to the adapter-cancel path below.
+            try:
+                return self.store.transition_job(
+                    job.id,
+                    JobState.CANCELLED,
+                    result=job.result,
+                    error=job.error,
+                    expected_state=JobState.QUEUED,
+                )
+            except StaleLease:
+                refreshed = self.store.get_job(job_id)
+                if refreshed is None:
+                    raise CancellationError("job not found") from None
+                if refreshed.state in TERMINAL_JOB_STATES:
+                    raise CancellationError(f"job is already {refreshed.state.value}") from None
+                job = refreshed
 
         action = self.catalog.validate_request(request)
         adapter = self.adapters.get(action.adapter)

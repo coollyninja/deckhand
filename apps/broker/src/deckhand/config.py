@@ -30,3 +30,10 @@ class Settings(BaseSettings):
     allow_mutations: bool = False
     worker_id: str = "deckhand-worker-1"
     confirmation_ttl_seconds: int = Field(default=60, ge=10, le=300)
+    # A confirmed intent that has waited longer than this in QUEUED is expired
+    # rather than executed arbitrarily late (e.g. worker was down at submit time).
+    queue_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    # Bound how many times the reconciler will re-attempt one UNKNOWN_OUTCOME job
+    # before parking it for operator attention, so a permanently-unresolvable job
+    # cannot churn the audit log forever.
+    reconcile_max_attempts: int = Field(default=10, ge=1, le=1000)
