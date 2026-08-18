@@ -22,9 +22,15 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1",
 ]
 
+[project.optional-dependencies]
+mcp = [
+  "mcp>=2,<3",
+]
+
 [project.scripts]
 deckhand-api = "deckhand.main:run"
 deckhand-macos-agent = "deckhand_macos.main:run"
+deckhand-mcp = "deckhand.mcp_server:run"
 deckhand-scheduler = "deckhand.scheduler_main:run"
 deckhand-sidecar = "deckhand.sidecar_main:run"
 deckhand-worker = "deckhand.worker_main:run"

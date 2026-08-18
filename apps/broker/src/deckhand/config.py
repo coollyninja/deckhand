@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     tailscale_app_capability: str = "coollyninja.com/cap/deckhand"
     allow_mutations: bool = False
     worker_id: str = "deckhand-worker-1"
+    # MCP server settings (deckhand-mcp entry point). The MCP server is a thin
+    # broker client: it mints signed identity tokens with this Ed25519 private key
+    # (whose public half the broker trusts via identity_public_key_file) and
+    # forwards typed intent to mcp_broker_url. Bearer-token auth of the MCP caller
+    # is supplied by a deployment TokenVerifier; the defaults below name the
+    # identity used when a single-operator deployment does not map per-caller.
+    identity_signing_key_file: Path | None = None
+    mcp_broker_url: str = "http://127.0.0.1:19470"
+    mcp_bind_host: str = "127.0.0.1"
+    mcp_bind_port: int = Field(default=19471, ge=1024, le=65535)
+    mcp_default_subject: str = "mcp-operator"
+    mcp_default_device: str = "mcp-agent"
     # HMAC key for the tamper-evident audit chain. Held by the broker process
     # (e.g. a systemd LoadCredential file), never stored in the database, so a
     # party with only DB write access cannot forge a valid chain. When unset, the
