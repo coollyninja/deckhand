@@ -3,7 +3,7 @@ import logging
 
 from .config import Settings
 from .extensions import load_catalog, load_extensions
-from .store import Store
+from .store import Store, load_audit_key
 from .supervision import backoff_delay
 from .worker import Worker
 
@@ -11,7 +11,7 @@ logger = logging.getLogger("deckhand.worker")
 
 
 async def worker_loop(settings: Settings) -> None:
-    store = Store(settings.database_path)
+    store = Store(settings.database_path, audit_hmac_key=load_audit_key(settings))
     store.initialize()
     extensions = load_extensions(settings)
     catalog = load_catalog(settings, extensions)

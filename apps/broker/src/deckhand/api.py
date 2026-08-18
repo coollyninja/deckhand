@@ -22,7 +22,7 @@ from .plugin_api import PluginManifest
 from .policy import OpaPolicyEngine, PolicyEngine, PolicyUnavailable
 from .resilience import ResilienceSnapshot
 from .status import StatusAggregator
-from .store import Store, StoreError
+from .store import Store, StoreError, load_audit_key
 from .worker import Worker
 
 
@@ -52,7 +52,7 @@ def create_app(
         if configured.identity_public_key_file is not None
         else None
     )
-    store = Store(configured.database_path)
+    store = Store(configured.database_path, audit_hmac_key=load_audit_key(configured))
     policy_engine = policy or OpaPolicyEngine(configured.opa_url, configured.opa_decision_path)
     adapter_registry = adapters or extensions.adapters
     canceller = Canceller(store, catalog, adapter_registry)
@@ -70,6 +70,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         runtime.store.initialize()
+        # Verify the audit chain on startup so tampering or truncation is detected
+        # rather than silently trusted; a broken chain fails startup fast.
+        if not runtime.store.verify_audit_chain():
+            raise RuntimeError("audit chain verification failed at startup")
         yield
 
     app = FastAPI(title="Deckhand Broker", version="0.5.0", lifespan=lifespan)
@@ -273,6 +277,8 @@ def create_app(
             POLICY_DECISIONS.labels(
                 phase="plan", outcome="allow" if decision.allow else "deny"
             ).inc()
+            if not decision.allow:
+                runtime.store.record_policy_denial(request, subject, "plan", decision.reason)
         except CatalogError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
         except AdapterError as error:
@@ -334,6 +340,7 @@ def create_app(
                 phase="execute", outcome="allow" if decision.allow else "deny"
             ).inc()
             if not decision.allow:
+                runtime.store.record_policy_denial(request, subject, "execute", decision.reason)
                 raise HTTPException(status.HTTP_403_FORBIDDEN, decision.reason)
             if request.dry_run:
                 raise HTTPException(

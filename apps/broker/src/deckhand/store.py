@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .config import Settings
 from .digests import confirmation_digest, request_digest
 from .models import (
     ActionRequest,
@@ -27,6 +28,16 @@ from .state_machine import require_transition
 
 class StoreError(RuntimeError):
     pass
+
+
+def load_audit_key(settings: Settings) -> bytes | None:
+    """Load the audit HMAC key from its configured file, if any."""
+    if settings.audit_hmac_key_file is None:
+        return None
+    material = settings.audit_hmac_key_file.read_bytes().strip()
+    if not material:
+        raise StoreError("audit HMAC key file is empty")
+    return material
 
 
 class StaleLease(StoreError):
@@ -88,8 +99,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
 
 
 class Store:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, audit_hmac_key: bytes | None = None) -> None:
         self.path = path
+        self._audit_hmac_key = audit_hmac_key
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -566,6 +578,28 @@ class Store:
             )
             return True
 
+    def record_policy_denial(
+        self, request: ActionRequest, subject: Subject, phase: str, reason: str
+    ) -> None:
+        """Write a durable audit event for a policy denial. Denials are exactly the
+        events an audit trail exists to capture (attempted-but-refused actions);
+        recording only a metric counter loses the who/what/why."""
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._append_audit(
+                connection,
+                "policy.denied",
+                {
+                    "phase": phase,
+                    "action_id": request.action_id,
+                    "action_version": request.action_version,
+                    "target": request.target.model_dump(mode="json"),
+                    "subject": subject.model_dump(),
+                    "request_digest": request_digest(request),
+                    "reason": reason,
+                },
+            )
+
     def list_audit_events(self, after_sequence: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -582,29 +616,72 @@ class Store:
         for row in rows:
             if row["previous_hash"] != previous_hash:
                 return False
-            material = "\x1f".join(
-                (previous_hash, row["occurred_at"], row["event_type"], row["payload_json"])
+            expected = self._chain_hash(
+                sequence=row["sequence"],
+                previous_hash=previous_hash,
+                occurred_at=row["occurred_at"],
+                event_type=row["event_type"],
+                payload_json=row["payload_json"],
             )
-            if not hmac.compare_digest(
-                hashlib.sha256(material.encode()).hexdigest(), row["event_hash"]
-            ):
+            if not hmac.compare_digest(expected, row["event_hash"]):
                 return False
             previous_hash = row["event_hash"]
         return True
 
     def audit_is_writable(self) -> bool:
+        """Prove the audit table is actually WRITABLE, not merely readable. A
+        read-only filesystem, a locked WAL, or a full disk lets a SELECT succeed
+        while INSERTs fail; the component-failure contract requires mutation to
+        fail closed when durable writes cannot happen, so we probe with a real
+        write inside a rolled-back savepoint."""
         try:
-            with self.connect() as connection:
+            connection = sqlite3.connect(self.path, timeout=5)
+            try:
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("SAVEPOINT audit_probe")
                 connection.execute(
-                    "SELECT sequence FROM audit_events ORDER BY sequence DESC LIMIT 1"
+                    """INSERT INTO audit_events
+                    (occurred_at, event_type, payload_json, previous_hash, event_hash)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        datetime.now(UTC).isoformat(),
+                        "audit.write_probe",
+                        "{}",
+                        "0" * 64,
+                        f"probe_{uuid4().hex}",
+                    ),
                 )
-            return True
-        except StoreError:
+                connection.execute("ROLLBACK TO audit_probe")
+                connection.execute("RELEASE audit_probe")
+                connection.commit()
+                return True
+            finally:
+                connection.close()
+        except sqlite3.Error:
             return False
 
-    @staticmethod
+    def _chain_hash(
+        self,
+        *,
+        sequence: int,
+        previous_hash: str,
+        occurred_at: str,
+        event_type: str,
+        payload_json: str,
+    ) -> str:
+        # The sequence is bound into the signed material so two events cannot be
+        # reordered without breaking the chain. When an HMAC key is configured the
+        # link is keyed, so a party with only DB write access cannot recompute a
+        # valid chain; otherwise it degrades to an unkeyed integrity hash.
+        material = "\x1f".join(
+            (str(sequence), previous_hash, occurred_at, event_type, payload_json)
+        ).encode()
+        if self._audit_hmac_key is not None:
+            return hmac.new(self._audit_hmac_key, material, hashlib.sha256).hexdigest()
+        return hashlib.sha256(material).hexdigest()
+
     def _append_audit(
-        connection: sqlite3.Connection, event_type: str, payload: dict[str, Any]
+        self, connection: sqlite3.Connection, event_type: str, payload: dict[str, Any]
     ) -> None:
         previous = connection.execute(
             "SELECT event_hash FROM audit_events ORDER BY sequence DESC LIMIT 1"
@@ -612,13 +689,27 @@ class Store:
         previous_hash = previous["event_hash"] if previous else "0" * 64
         occurred_at = datetime.now(UTC).isoformat()
         payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-        material = "\x1f".join((previous_hash, occurred_at, event_type, payload_json))
-        event_hash = hashlib.sha256(material.encode()).hexdigest()
-        connection.execute(
+        # Insert with a placeholder to obtain the autoincrement sequence, then bind
+        # that sequence into the hash and finalise the row in the same transaction.
+        cursor = connection.execute(
             """INSERT INTO audit_events
             (occurred_at, event_type, payload_json, previous_hash, event_hash)
             VALUES (?, ?, ?, ?, ?)""",
-            (occurred_at, event_type, payload_json, previous_hash, event_hash),
+            (occurred_at, event_type, payload_json, previous_hash, f"pending_{uuid4().hex}"),
+        )
+        sequence = cursor.lastrowid
+        if sequence is None:
+            raise StoreError("audit event did not receive a sequence")
+        event_hash = self._chain_hash(
+            sequence=sequence,
+            previous_hash=previous_hash,
+            occurred_at=occurred_at,
+            event_type=event_type,
+            payload_json=payload_json,
+        )
+        connection.execute(
+            "UPDATE audit_events SET event_hash = ? WHERE sequence = ?",
+            (event_hash, sequence),
         )
 
     @staticmethod

@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     tailscale_app_capability: str = "coollyninja.com/cap/deckhand"
     allow_mutations: bool = False
     worker_id: str = "deckhand-worker-1"
+    # HMAC key for the tamper-evident audit chain. Held by the broker process
+    # (e.g. a systemd LoadCredential file), never stored in the database, so a
+    # party with only DB write access cannot forge a valid chain. When unset, the
+    # chain degrades to an unkeyed integrity check (detects corruption, not
+    # forgery) for backward compatibility.
+    audit_hmac_key_file: Path | None = None
     confirmation_ttl_seconds: int = Field(default=60, ge=10, le=300)
     # A confirmed intent that has waited longer than this in QUEUED is expired
     # rather than executed arbitrarily late (e.g. worker was down at submit time).
