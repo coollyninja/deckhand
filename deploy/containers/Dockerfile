@@ -17,4 +17,8 @@ RUN uv sync --frozen --no-dev --no-editable \
 
 USER deckhand:deckhand
 EXPOSE 19470
-ENTRYPOINT ["deckhand-api"]
+# No hardcoded app entrypoint: each service (broker/worker/scheduler) selects its
+# own console script via the compose/systemd command. A hardcoded ENTRYPOINT plus
+# a compose `command:` would make the command ARGUMENTS to the entrypoint rather
+# than replace it, so every service would run the API. CMD is overridable.
+CMD ["deckhand-api"]

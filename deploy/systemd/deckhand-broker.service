@@ -16,7 +16,15 @@ Environment=DECKHAND_CATALOG_PATH=/etc/deckhand/catalog
 Environment=DECKHAND_PLUGIN_CONFIG_PATH=/etc/deckhand/plugins.yaml
 Environment=DECKHAND_PLUGIN_LOCK_PATH=/etc/deckhand/plugins.lock.yaml
 Environment=DECKHAND_PROXY_ASSERTION_FILE=%d/proxy-assertion
+Environment=DECKHAND_IDENTITY_PUBLIC_KEY_FILE=/etc/deckhand/secrets/identity.pub.pem
+Environment=DECKHAND_AUDIT_HMAC_KEY_FILE=%d/audit-hmac-key
+# Enable the trusted-proxy boundary so authenticated routes are reachable. The
+# broker still verifies a per-request signed identity token; this only asserts
+# that a trusted local ingress terminates identity in front of the loopback
+# listener. Never enable on a directly reachable listener.
+Environment=DECKHAND_TRUSTED_PROXY=true
 LoadCredential=proxy-assertion:/etc/deckhand/secrets/proxy-assertion
+LoadCredential=audit-hmac-key:/etc/deckhand/secrets/audit-hmac-key
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
@@ -33,8 +41,10 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+StateDirectory=deckhand
+StateDirectoryMode=2770
 ReadWritePaths=/var/lib/deckhand
-UMask=0077
+UMask=0007
 Restart=on-failure
 RestartSec=3s
 

@@ -2,10 +2,25 @@
   auto_https disable_redirects
 }
 
-# Tailscale Serve proxies to this loopback listener. Tailscale strips spoofed
-# identity/app-capability headers before adding authoritative values.
+# PRODUCTION NOTE: the primary broker identity boundary is a per-request Ed25519
+# SIGNED identity token (X-Deckhand-Identity), verified by the broker against its
+# configured public key. A trusted local issuer mints that token from the
+# authenticated ingress identity; Caddy cannot sign Ed25519 itself, so a
+# deployment runs a small identity-issuer hop behind Caddy (documented in the
+# broker-install runbook). The legacy shared-assertion header path below is
+# retained ONLY for a migrating deployment that sets
+# DECKHAND_ALLOW_LEGACY_PROXY_ASSERTION=true; a fresh deployment leaves it off,
+# in which case these header blocks are superseded by the issuer.
+
+# Tailscale Serve proxies to this loopback listener. Serve strips spoofed
+# identity/app-capability headers before adding authoritative values -- but a
+# local process that reaches this loopback backend directly would NOT go through
+# Serve, so we also strip inbound Tailscale-* headers here as defence in depth
+# (the mgmt-mtls block does the same). Identity still comes only from Serve.
 http://127.0.0.1:19472 {
   reverse_proxy 127.0.0.1:19470 {
+    header_up -Tailscale-User-Login
+    header_up -Tailscale-App-Capabilities
     header_up X-Deckhand-Channel tailscale
     header_up X-Deckhand-Proxy-Assertion {$DECKHAND_PROXY_ASSERTION}
   }

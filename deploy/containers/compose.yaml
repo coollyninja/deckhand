@@ -1,37 +1,62 @@
+# Deckhand container stack (read-only demo/dev topology).
+#
+# Uses a YAML anchor for the shared build + hardening instead of `extends`, so
+# worker/scheduler do NOT inherit the broker's published port (an empty
+# `ports: []` under `extends` does not clear an inherited mapping). Each service
+# overrides `command` (the image CMD, not a fixed ENTRYPOINT) so they run
+# distinct processes. The database lives on the writable named volume, not the
+# read-only rootfs. Read-only site topology, real credentials, and mutation
+# activation belong in a private overlay, not this file.
+x-deckhand-base: &deckhand-base
+  build:
+    context: ../..
+    dockerfile: deploy/containers/Dockerfile
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1770,size=32m
+  environment: &deckhand-env
+    DECKHAND_OPA_URL: http://opa:8181
+    DECKHAND_DATABASE_PATH: /var/lib/deckhand/deckhand.db
+    DECKHAND_CATALOG_PATH: /opt/deckhand/packages/catalog
+    DECKHAND_PLUGIN_CONFIG_PATH: /opt/deckhand/config/plugins.yaml
+    DECKHAND_PLUGIN_LOCK_PATH: /opt/deckhand/config/plugins.lock.yaml
+  volumes:
+    - deckhand-data:/var/lib/deckhand
+    - ../../packages/catalog:/opt/deckhand/packages/catalog:ro
+    - ../../config/plugins.yaml:/opt/deckhand/config/plugins.yaml:ro
+    - ../../config/plugins.lock.yaml:/opt/deckhand/config/plugins.lock.yaml:ro
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: ["ALL"]
+  depends_on:
+    opa:
+      condition: service_healthy
+
 services:
   broker:
-    build:
-      context: ../..
-      dockerfile: deploy/containers/Dockerfile
+    <<: *deckhand-base
     command: ["deckhand-api"]
     environment:
-      DECKHAND_OPA_URL: http://opa:8181
-    read_only: true
-    tmpfs:
-      - /tmp:mode=1770,size=32m
+      <<: *deckhand-env
+      # Identity is terminated by the trusted local ingress (Caddy/Tailscale
+      # Serve). Enable trusted-proxy so authenticated routes are reachable; the
+      # broker still verifies a signed identity token per request.
+      DECKHAND_TRUSTED_PROXY: "true"
     ports:
       - "127.0.0.1:19470:19470"
-    volumes:
-      - deckhand-data:/var/lib/deckhand
-      - ../../packages/catalog:/opt/deckhand/packages/catalog:ro
-      - ../../config/plugins.yaml:/opt/deckhand/config/plugins.yaml:ro
-      - ../../config/plugins.lock.yaml:/opt/deckhand/config/plugins.lock.yaml:ro
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: ["ALL"]
-    depends_on:
-      opa:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/opt/deckhand/.venv/bin/python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:19470/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   worker:
-    extends: broker
+    <<: *deckhand-base
     command: ["deckhand-worker"]
-    ports: []
 
   scheduler:
-    extends: broker
+    <<: *deckhand-base
     command: ["deckhand-scheduler"]
-    ports: []
 
   opa:
     image: docker.io/openpolicyagent/opa:1.19.0-static

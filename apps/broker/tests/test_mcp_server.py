@@ -37,7 +37,7 @@ def _make_client(tmp_path: Path, *, allow_mutations: bool) -> BrokerClient:
     app.state.runtime.store.initialize()
     transport = httpx.ASGITransport(app=app)
     return BrokerClient(
-        "http://broker.local",
+        "http://broker.invalid",
         signing_key=key,
         channel="mcp",
         transport=transport,

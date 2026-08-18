@@ -61,4 +61,25 @@ jobs:
         with:
           context: .
           file: deploy/containers/Dockerfile
+          load: true
+          tags: deckhand:ci
           push: false
+      # Boot gate: the image must actually start and serve /healthz. This catches
+      # the class of "written but never run" deploy defects (entrypoint/command
+      # collisions, wrong DB path, unreachable port) that static build cannot.
+      - name: Smoke-test the image serves /healthz
+        run: |
+          docker run -d --name deckhand-smoke \
+            -e DECKHAND_DATABASE_PATH=/tmp/deckhand.db \
+            -e DECKHAND_BIND_HOST=0.0.0.0 \
+            -p 19470:19470 deckhand:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19470/healthz >/dev/null 2>&1; then
+              echo "healthz OK"; docker rm -f deckhand-smoke; exit 0
+            fi
+            sleep 1
+          done
+          echo "healthz did not come up"; docker logs deckhand-smoke; docker rm -f deckhand-smoke; exit 1
+      # Compose must be structurally valid (catches extends/anchor/port mistakes).
+      - name: Validate compose stack
+        run: docker compose -f deploy/containers/compose.yaml config >/dev/null

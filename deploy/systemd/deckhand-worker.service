@@ -5,10 +5,16 @@ Requires=deckhand-broker.service
 
 [Service]
 Type=exec
-User=deckhand-worker
+# Runs as the same identity as the broker: they share the SQLite job store, and
+# the sidecar authorises exactly one broker peer UID -- so the worker (which also
+# opens a SidecarClient) must present that same UID. A separate worker user would
+# be locked out of both the database and every sidecar plugin.
+User=deckhand
 Group=deckhand
 WorkingDirectory=/opt/deckhand
 ExecStart=/opt/deckhand/.venv/bin/deckhand-worker
+Environment=DECKHAND_AUDIT_HMAC_KEY_FILE=%d/audit-hmac-key
+LoadCredential=audit-hmac-key:/etc/deckhand/secrets/audit-hmac-key
 Environment=DECKHAND_DATABASE_PATH=/var/lib/deckhand/deckhand.db
 Environment=DECKHAND_CATALOG_PATH=/etc/deckhand/catalog
 Environment=DECKHAND_PLUGIN_CONFIG_PATH=/etc/deckhand/plugins.yaml
@@ -29,8 +35,10 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+StateDirectory=deckhand
+StateDirectoryMode=2770
 ReadWritePaths=/var/lib/deckhand
-UMask=0077
+UMask=0007
 Restart=on-failure
 RestartSec=3s
 
