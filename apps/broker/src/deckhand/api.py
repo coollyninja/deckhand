@@ -15,6 +15,7 @@ from .catalog import Catalog, CatalogError
 from .config import Settings
 from .digests import request_digest
 from .extensions import load_catalog, load_extensions
+from .identity import IdentityError, load_public_key, verify_token
 from .metrics import JOBS_SUBMITTED, POLICY_DECISIONS, STATUS_OBSERVATION_SECONDS
 from .models import ActionDefinition, ActionRequest, JobView, PlanView, StatusValue, Subject
 from .plugin_api import PluginManifest
@@ -46,6 +47,11 @@ def create_app(
     configured = settings or Settings()
     extensions = load_extensions(configured)
     catalog = load_catalog(configured, extensions)
+    identity_public_key = (
+        load_public_key(configured.identity_public_key_file)
+        if configured.identity_public_key_file is not None
+        else None
+    )
     store = Store(configured.database_path)
     policy_engine = policy or OpaPolicyEngine(configured.opa_url, configured.opa_decision_path)
     adapter_registry = adapters or extensions.adapters
@@ -70,14 +76,32 @@ def create_app(
     app.state.runtime = runtime
     app.mount("/metrics", make_asgi_app())
 
-    def authenticated_subject(
-        tailscale_user_login: Annotated[str | None, Header()] = None,
-        tailscale_app_capabilities: Annotated[str | None, Header()] = None,
-        x_deckhand_subject: Annotated[str | None, Header()] = None,
-        x_deckhand_device: Annotated[str | None, Header()] = None,
-        x_deckhand_channel: Annotated[str | None, Header()] = None,
-        x_deckhand_proxy_assertion: Annotated[str | None, Header()] = None,
+    def _subject_from_identity_token(token: str) -> Subject:
+        # Primary path: a trusted local issuer (Caddy/Tailscale Serve for the deck,
+        # the MCP server for agents) minted an Ed25519-signed assertion. The channel
+        # is inside the signed payload, so a client cannot self-declare it, and the
+        # broker verifies a signature rather than comparing a shared secret.
+        if identity_public_key is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "identity verification unavailable"
+            )
+        try:
+            claims = verify_token(identity_public_key, token)
+        except IdentityError as error:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid identity token") from error
+        return claims.to_subject()
+
+    def _subject_from_legacy_headers(
+        *,
+        tailscale_user_login: str | None,
+        tailscale_app_capabilities: str | None,
+        x_deckhand_subject: str | None,
+        x_deckhand_device: str | None,
+        x_deckhand_channel: str | None,
+        x_deckhand_proxy_assertion: str | None,
     ) -> Subject:
+        # Backward-compatible fallback (opt-in): shared assertion + trusted headers.
+        # Kept only for deployments not yet migrated to signed tokens.
         assertion_file = runtime.settings.proxy_assertion_file
         if not runtime.settings.trusted_proxy or assertion_file is None:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "trusted ingress unavailable")
@@ -115,6 +139,32 @@ def create_app(
         if x_deckhand_channel != "mgmt-mtls" or not x_deckhand_subject or not x_deckhand_device:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authenticated identity required")
         return Subject(name=x_deckhand_subject, device=x_deckhand_device, channel="mgmt-mtls")
+
+    def authenticated_subject(
+        x_deckhand_identity: Annotated[str | None, Header()] = None,
+        tailscale_user_login: Annotated[str | None, Header()] = None,
+        tailscale_app_capabilities: Annotated[str | None, Header()] = None,
+        x_deckhand_subject: Annotated[str | None, Header()] = None,
+        x_deckhand_device: Annotated[str | None, Header()] = None,
+        x_deckhand_channel: Annotated[str | None, Header()] = None,
+        x_deckhand_proxy_assertion: Annotated[str | None, Header()] = None,
+    ) -> Subject:
+        if x_deckhand_identity is not None:
+            return _subject_from_identity_token(x_deckhand_identity)
+        if identity_public_key is not None and not runtime.settings.allow_legacy_proxy_assertion:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "signed identity token required")
+        if not runtime.settings.allow_legacy_proxy_assertion:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "identity verification unavailable"
+            )
+        return _subject_from_legacy_headers(
+            tailscale_user_login=tailscale_user_login,
+            tailscale_app_capabilities=tailscale_app_capabilities,
+            x_deckhand_subject=x_deckhand_subject,
+            x_deckhand_device=x_deckhand_device,
+            x_deckhand_channel=x_deckhand_channel,
+            x_deckhand_proxy_assertion=x_deckhand_proxy_assertion,
+        )
 
     def policy_input(
         action: ActionDefinition,

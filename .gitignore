@@ -19,3 +19,4 @@ node_modules/
 apps/streamdeck-plugin/com.coollyninja.deckhand.sdPlugin/bin/
 config/plugins.yaml
 config/site.yaml
+graphify-out/

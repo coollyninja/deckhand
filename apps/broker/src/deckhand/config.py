@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     opa_decision_path: str = "/v1/data/deckhand/authz/decision"
     trusted_proxy: bool = False
     proxy_assertion_file: Path | None = None
+    # Primary identity boundary: the broker verifies an Ed25519-signed identity
+    # token (channel/subject/device/exp/nonce) minted by a trusted local issuer.
+    # When set, this supersedes the shared-assertion header path.
+    identity_public_key_file: Path | None = None
+    # Backward-compatible fallback: accept the legacy shared-assertion + trusted
+    # headers path. Off by default so a fresh deployment is signed-token only.
+    allow_legacy_proxy_assertion: bool = False
     tailscale_app_capability: str = "coollyninja.com/cap/deckhand"
     allow_mutations: bool = False
     worker_id: str = "deckhand-worker-1"
