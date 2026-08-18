@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .digests import request_digest
+from .digests import confirmation_digest, request_digest
 from .models import (
     ActionRequest,
     ConfirmationChallenge,
@@ -49,9 +49,10 @@ CREATE INDEX IF NOT EXISTS jobs_state_created_idx ON jobs(state, created_at);
 CREATE TABLE IF NOT EXISTS confirmations (
   id TEXT PRIMARY KEY,
   token_hash TEXT NOT NULL,
-  request_digest TEXT NOT NULL,
+  confirmation_digest TEXT NOT NULL,
   subject_name TEXT NOT NULL,
   subject_device TEXT NOT NULL,
+  control TEXT,
   mode TEXT NOT NULL,
   expected_response TEXT,
   expires_at TEXT NOT NULL,
@@ -285,19 +286,21 @@ class Store:
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         expected_response = request.target.id if mode == ConfirmationMode.TYPED else None
+        digest = confirmation_digest(request)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """INSERT INTO confirmations
-                (id, token_hash, request_digest, subject_name, subject_device, mode,
-                 expected_response, expires_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (id, token_hash, confirmation_digest, subject_name, subject_device, control,
+                 mode, expected_response, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     confirmation_id,
                     token_hash,
-                    request_digest(request),
+                    digest,
                     subject.name,
                     subject.device,
+                    request.context.control,
                     mode.value,
                     expected_response,
                     expires_at.isoformat(),
@@ -309,8 +312,9 @@ class Store:
                 "confirmation.created",
                 {
                     "confirmation_id": confirmation_id,
-                    "request_digest": request_digest(request),
+                    "confirmation_digest": digest,
                     "mode": mode.value,
+                    "control": request.context.control,
                 },
             )
         return ConfirmationChallenge(
@@ -328,23 +332,31 @@ class Store:
         token: str,
         response: str | None = None,
     ) -> bool:
+        """Consume a confirmation for this request. Records the outcome, including
+        rejections (wrong token / expired / wrong device / wrong control), so
+        replay attempts are auditable rather than silent."""
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         now = datetime.now(UTC)
+        digest = confirmation_digest(request)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """SELECT * FROM confirmations
-                WHERE request_digest = ? AND subject_name = ? AND subject_device = ?
+                WHERE confirmation_digest = ? AND subject_name = ? AND subject_device = ?
                   AND used_at IS NULL ORDER BY created_at DESC LIMIT 1""",
-                (request_digest(request), subject.name, subject.device),
+                (digest, subject.name, subject.device),
             ).fetchone()
-            if row is None or not hmac.compare_digest(row["token_hash"], token_hash):
-                return False
-            if datetime.fromisoformat(row["expires_at"]) <= now:
-                return False
-            if row["expected_response"] is not None and not hmac.compare_digest(
-                row["expected_response"], response or ""
-            ):
+            reason = self._confirmation_reject_reason(row, token_hash, request, response, now)
+            if reason is not None:
+                self._append_audit(
+                    connection,
+                    "confirmation.rejected",
+                    {
+                        "confirmation_digest": digest,
+                        "subject": subject.model_dump(),
+                        "reason": reason,
+                    },
+                )
                 return False
             connection.execute(
                 "UPDATE confirmations SET used_at = ? WHERE id = ?", (now.isoformat(), row["id"])
@@ -352,7 +364,55 @@ class Store:
             self._append_audit(
                 connection,
                 "confirmation.consumed",
-                {"confirmation_id": row["id"], "request_digest": request_digest(request)},
+                {"confirmation_id": row["id"], "confirmation_digest": digest},
+            )
+            return True
+
+    @staticmethod
+    def _confirmation_reject_reason(
+        row: sqlite3.Row | None,
+        token_hash: str,
+        request: ActionRequest,
+        response: str | None,
+        now: datetime,
+    ) -> str | None:
+        """Return None if the confirmation is valid, else a rejection reason."""
+        if row is None:
+            return "no_matching_confirmation"
+        if not hmac.compare_digest(row["token_hash"], token_hash):
+            return "token_mismatch"
+        if datetime.fromisoformat(row["expires_at"]) <= now:
+            return "expired"
+        # Bind the physical control location: a confirmation issued for one key
+        # cannot be consumed from another.
+        if row["control"] != request.context.control:
+            return "control_mismatch"
+        if row["expected_response"] is not None and not hmac.compare_digest(
+            row["expected_response"], response or ""
+        ):
+            return "typed_response_mismatch"
+        return None
+
+    def cancel_confirmation(self, confirmation_id: str, subject: Subject) -> bool:
+        """Cancel a pending confirmation, bound to the issuing subject. Returns
+        True if a live confirmation was cancelled, False otherwise."""
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT * FROM confirmations
+                WHERE id = ? AND subject_name = ? AND subject_device = ? AND used_at IS NULL""",
+                (confirmation_id, subject.name, subject.device),
+            ).fetchone()
+            if row is None:
+                return False
+            connection.execute(
+                "UPDATE confirmations SET used_at = ? WHERE id = ?", (now, confirmation_id)
+            )
+            self._append_audit(
+                connection,
+                "confirmation.cancelled",
+                {"confirmation_id": confirmation_id, "subject": subject.model_dump()},
             )
             return True
 

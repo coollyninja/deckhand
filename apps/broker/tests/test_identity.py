@@ -11,9 +11,7 @@ def _key() -> Ed25519PrivateKey:
 
 def test_mint_and_verify_round_trip() -> None:
     key = _key()
-    token = mint_token(
-        key, subject="bobby", device="macbook-air-m2", channel="mcp", nonce="n1"
-    )
+    token = mint_token(key, subject="bobby", device="macbook-air-m2", channel="mcp", nonce="n1")
     claims = verify_token(key.public_key(), token)
     assert claims.subject == "bobby"
     assert claims.device == "macbook-air-m2"

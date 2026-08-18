@@ -84,6 +84,9 @@ class ActionRequest(StrictModel):
     idempotency_key: UUID
     dry_run: bool = False
     confirmation_token: str | None = Field(default=None, min_length=32, max_length=256)
+    # Typed-challenge response (for ConfirmationMode.TYPED). Proof-of-approval,
+    # not part of request identity, so excluded from both digests.
+    confirmation_response: str | None = Field(default=None, max_length=256)
 
 
 class ActionDefinition(StrictModel):
@@ -139,6 +142,10 @@ class ConfirmationSubmission(StrictModel):
 
 class PlanView(StrictModel):
     request_digest: str
+    # The authority-bearing digest a confirmation is bound to. Clients treat this
+    # as the explicit contract: the same (action, version, target, parameters)
+    # that produced this plan is what the confirmation authorizes at execute time.
+    confirmation_digest: str
     action_id: str
     action_version: int
     target: Target

@@ -27,9 +27,7 @@ def test_missing_identity_is_rejected(signed_client: TestClient) -> None:
 def test_forged_token_is_rejected(signed_client: TestClient) -> None:
     # A token signed by a DIFFERENT key must not authenticate.
     attacker = Ed25519PrivateKey.generate()
-    response = signed_client.get(
-        "/v1/actions", headers={"X-Deckhand-Identity": _token(attacker)}
-    )
+    response = signed_client.get("/v1/actions", headers={"X-Deckhand-Identity": _token(attacker)})
     assert response.status_code == 401
 
 

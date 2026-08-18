@@ -39,6 +39,24 @@ def headers() -> dict[str, str]:
 
 
 @pytest.fixture
+def mutation_client(tmp_path: Path) -> Iterator[TestClient]:
+    """Legacy-path client with mutations ENABLED, for confirm→execute flow tests."""
+    root = Path(__file__).parents[3]
+    assertion_file = tmp_path / "proxy-assertion"
+    assertion_file.write_text("test-proxy-assertion", encoding="utf-8")
+    settings = Settings(
+        database_path=tmp_path / "deckhand.db",
+        catalog_path=root / "apps/broker/tests/fixtures/catalog",
+        trusted_proxy=True,
+        proxy_assertion_file=assertion_file,
+        allow_legacy_proxy_assertion=True,
+        allow_mutations=True,
+    )
+    with TestClient(create_app(settings, policy=DevelopmentPolicyEngine())) as test_client:
+        yield test_client
+
+
+@pytest.fixture
 def identity_key(tmp_path: Path) -> Ed25519PrivateKey:
     """A signing key whose public half the signed-identity client trusts."""
     key = Ed25519PrivateKey.generate()
@@ -51,9 +69,7 @@ def identity_key(tmp_path: Path) -> Ed25519PrivateKey:
 
 
 @pytest.fixture
-def signed_client(
-    tmp_path: Path, identity_key: Ed25519PrivateKey
-) -> Iterator[TestClient]:
+def signed_client(tmp_path: Path, identity_key: Ed25519PrivateKey) -> Iterator[TestClient]:
     """Client on the primary signed-identity-token path (legacy path disabled)."""
     root = Path(__file__).parents[3]
     settings = Settings(

@@ -13,7 +13,7 @@ from .adapters import AdapterError, AdapterHealth, AdapterRegistry
 from .cancellation import CancellationError, Canceller
 from .catalog import Catalog, CatalogError
 from .config import Settings
-from .digests import request_digest
+from .digests import confirmation_digest, request_digest
 from .extensions import load_catalog, load_extensions
 from .identity import IdentityError, load_public_key, verify_token
 from .metrics import JOBS_SUBMITTED, POLICY_DECISIONS, STATUS_OBSERVATION_SECONDS
@@ -294,6 +294,7 @@ def create_app(
             )
         return PlanView(
             request_digest=request_digest(request),
+            confirmation_digest=confirmation_digest(request),
             action_id=action.id,
             action_version=action.version,
             target=request.target,
@@ -318,7 +319,7 @@ def create_app(
             confirmation_valid = False
             if request.confirmation_token:
                 confirmation_valid = runtime.store.consume_confirmation(
-                    request, subject, request.confirmation_token
+                    request, subject, request.confirmation_token, request.confirmation_response
                 )
             decision = await runtime.policy.decide(
                 policy_input(
@@ -369,6 +370,18 @@ def create_app(
                 else status.HTTP_409_CONFLICT
             )
             raise HTTPException(code, str(error)) from error
+
+    @app.post("/v1/confirmations/{confirmation_id}:cancel")
+    async def cancel_confirmation(
+        confirmation_id: str,
+        subject: Annotated[Subject, Depends(authenticated_subject)],
+    ) -> dict[str, str]:
+        cancelled = runtime.store.cancel_confirmation(confirmation_id, subject)
+        if not cancelled:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, "confirmation not found or already resolved"
+            )
+        return {"status": "cancelled"}
 
     @app.get("/v1/events")
     async def events(
