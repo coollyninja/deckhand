@@ -39,6 +39,7 @@ dev = [
   "ruff>=0.12,<1",
   "types-jsonschema>=4.25,<5",
   "types-pyyaml>=6.0,<7",
+  "wsproto>=1.2,<2",
 ]
 
 [tool.hatch.build.targets.wheel]

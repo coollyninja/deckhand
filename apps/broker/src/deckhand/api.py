@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import json
 from collections.abc import AsyncIterator
@@ -6,7 +7,17 @@ from dataclasses import dataclass
 from email.header import decode_header
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from prometheus_client import make_asgi_app
 
 from .adapters import AdapterError, AdapterHealth, AdapterRegistry
@@ -228,6 +239,16 @@ def create_app(
     ) -> list[dict[str, object]]:
         return runtime.catalog.serializable()
 
+    @app.get("/v1/actions/{action_id}", response_model=ActionDefinition)
+    async def action_detail(
+        action_id: str,
+        _: Annotated[Subject, Depends(authenticated_subject)],
+    ) -> ActionDefinition:
+        try:
+            return runtime.catalog.latest(action_id)
+        except CatalogError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+
     @app.get("/v1/plugins", response_model=list[PluginManifest])
     async def plugins(
         _: Annotated[Subject, Depends(authenticated_subject)],
@@ -407,5 +428,71 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=1000)] = 100,
     ) -> list[dict[str, Any]]:
         return runtime.store.list_audit_events(after, limit)
+
+    @app.get("/v1/events/stream")
+    async def events_stream(
+        _: Annotated[Subject, Depends(authenticated_subject)],
+        after: Annotated[int, Query(ge=0)] = 0,
+        once: Annotated[bool, Query()] = False,
+    ) -> StreamingResponse:
+        # SSE feed of authoritative audit events. The client supplies the last
+        # sequence it has (reconnect-without-replay: fetch current revision first,
+        # then resume from it), and the broker streams strictly newer events.
+        # ``once=true`` drains the currently-available events and closes, which is
+        # useful for a bounded catch-up read (and keeps the feed test-friendly).
+        def format_event(event: dict[str, Any]) -> bytes:
+            payload = json.dumps(event, default=str)
+            head = f"id: {event['sequence']}\nevent: {event['event_type']}\n"
+            return f"{head}data: {payload}\n\n".encode()
+
+        async def event_source() -> AsyncIterator[bytes]:
+            cursor = after
+            idle = 0
+            while True:
+                batch = runtime.store.list_audit_events(cursor, limit=100)
+                for event in batch:
+                    cursor = event["sequence"]
+                    yield format_event(event)
+                    idle = 0
+                if once:
+                    return
+                if not batch:
+                    idle += 1
+                    # Periodic keepalive comment so proxies do not drop an idle
+                    # connection; costs nothing and keeps the stream live.
+                    if idle % 15 == 0:
+                        yield b": keepalive\n\n"
+                await asyncio.sleep(1.0)
+
+        return StreamingResponse(event_source(), media_type="text/event-stream")
+
+    @app.websocket("/v1/ws")
+    async def ws(websocket: WebSocket) -> None:
+        # WebSocket feed for the Stream Deck plugin. Identity is verified from the
+        # signed token supplied as a query parameter or header BEFORE accept, so an
+        # unauthenticated peer never establishes a session.
+        token = websocket.query_params.get("identity") or websocket.headers.get(
+            "x-deckhand-identity"
+        )
+        if identity_public_key is None or token is None:
+            await websocket.close(code=1008)
+            return
+        try:
+            verify_token(identity_public_key, token)
+        except IdentityError:
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        try:
+            after_param = websocket.query_params.get("after", "0")
+            cursor = int(after_param) if after_param.isdigit() else 0
+            while True:
+                batch = runtime.store.list_audit_events(cursor, limit=100)
+                for event in batch:
+                    cursor = event["sequence"]
+                    await websocket.send_json(event)
+                await asyncio.sleep(1.0)
+        except WebSocketDisconnect:
+            return
 
     return app

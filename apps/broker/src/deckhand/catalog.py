@@ -35,6 +35,13 @@ class Catalog:
         except KeyError as error:
             raise CatalogError(f"unknown action {action_id}@{version}") from error
 
+    def latest(self, action_id: str) -> ActionDefinition:
+        """Return the highest-versioned definition for an action ID."""
+        versions = [action for (aid, _), action in self._actions.items() if aid == action_id]
+        if not versions:
+            raise CatalogError(f"unknown action {action_id}")
+        return max(versions, key=lambda action: action.version)
+
     def validate_request(self, request: ActionRequest) -> ActionDefinition:
         action = self.get(request.action_id, request.action_version)
         if request.target.type not in action.target_types:
