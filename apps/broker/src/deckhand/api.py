@@ -16,6 +16,7 @@ from .config import Settings
 from .digests import confirmation_digest, request_digest
 from .extensions import load_catalog, load_extensions
 from .identity import IdentityError, load_public_key, verify_token
+from .inventory import load_protected_inventory
 from .metrics import JOBS_SUBMITTED, POLICY_DECISIONS, STATUS_OBSERVATION_SECONDS
 from .models import ActionDefinition, ActionRequest, JobView, PlanView, StatusValue, Subject
 from .plugin_api import PluginManifest
@@ -53,6 +54,7 @@ def create_app(
         else None
     )
     store = Store(configured.database_path, audit_hmac_key=load_audit_key(configured))
+    protected_inventory = load_protected_inventory(configured.protected_inventory_path)
     policy_engine = policy or OpaPolicyEngine(configured.opa_url, configured.opa_decision_path)
     adapter_registry = adapters or extensions.adapters
     canceller = Canceller(store, catalog, adapter_registry)
@@ -181,11 +183,19 @@ def create_app(
         return {
             "action": action.model_dump(mode="json"),
             "subject": subject.model_dump(mode="json"),
-            "target": {**request.target.model_dump(mode="json"), "protected": False},
+            "target": {
+                **request.target.model_dump(mode="json"),
+                "protected": protected_inventory.is_protected(request.target),
+            },
             "parameters": request.parameters,
             "runtime": {
                 "mutations_enabled": runtime.settings.allow_mutations,
                 "audit_writable": runtime.store.audit_is_writable(),
+                "environment": runtime.settings.environment,
+            },
+            "context": {
+                "profile": request.context.profile,
+                "control": request.context.control,
             },
             "request": {"digest": request_digest(request), "phase": phase},
             "confirmation": {

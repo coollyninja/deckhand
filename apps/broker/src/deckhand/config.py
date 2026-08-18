@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     allow_sidecar_plugins: bool = False
     opa_url: str = "http://127.0.0.1:8181"
     opa_decision_path: str = "/v1/data/deckhand/authz/decision"
+    # Site-overlay-supplied inventory of protected targets that must never be
+    # mutated from the deck (Appendix C baseline). Core ships the mechanism and an
+    # .invalid example; the real list lives only in the private deployment. When
+    # unset, no target is marked protected (and, by policy, mutation still requires
+    # explicit allowlisting, so absence fails safe toward deny).
+    protected_inventory_path: Path | None = None
+    environment: str = "development"
     trusted_proxy: bool = False
     proxy_assertion_file: Path | None = None
     # Primary identity boundary: the broker verifies an Ed25519-signed identity

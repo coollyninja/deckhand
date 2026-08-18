@@ -24,7 +24,7 @@ allow if {
 	input.action.risk_class == "read"
 	input.subject.name != ""
 	input.subject.device != ""
-	input.subject.channel in {"tailscale", "mgmt-mtls"}
+	input.subject.channel in {"tailscale", "mgmt-mtls", "mcp"}
 }
 
 allow if {
@@ -33,7 +33,7 @@ allow if {
 	input.runtime.audit_writable == true
 	input.subject.name in data.inventory.operators
 	input.subject.device in data.inventory.managed_devices
-	input.subject.channel in {"tailscale", "mgmt-mtls"}
+	input.subject.channel in {"tailscale", "mgmt-mtls", "mcp"}
 	input.target.id in data.inventory.allowed_targets[input.action.id]
 	not input.target.protected
 	input.request.phase == "plan"
@@ -45,7 +45,7 @@ allow if {
 	input.runtime.audit_writable == true
 	input.subject.name in data.inventory.operators
 	input.subject.device in data.inventory.managed_devices
-	input.subject.channel in {"tailscale", "mgmt-mtls"}
+	input.subject.channel in {"tailscale", "mgmt-mtls", "mcp"}
 	input.target.id in data.inventory.allowed_targets[input.action.id]
 	not input.target.protected
 	input.request.phase == "execute"

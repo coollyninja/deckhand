@@ -1,0 +1,26 @@
+# Protected-resource inventory (Appendix C baseline) — EXAMPLE ONLY.
+#
+# Targets listed here are refused for mutation by policy regardless of any other
+# allowance. This public example uses logical/.invalid placeholders only; the
+# real list lives in the private site overlay (deckhand-site-<site>) and is
+# supplied to the broker via DECKHAND_PROTECTED_INVENTORY_PATH.
+#
+# Two ways to protect:
+#   - `types`:   protect an entire target type (fences off a whole class)
+#   - `targets`: protect a specific (type, id) pair
+protected:
+  types:
+    # Physical-safety and infrastructure classes that must never be mutated from
+    # the deck. Protect the whole type so no id in it is ever eligible.
+    - physical_estop
+    - ups_control
+    - storage_membership
+    - identity_provider
+    - certificate_authority
+
+  targets:
+    # Specific protected resources, named with logical placeholders here.
+    - { type: pve_node, id: broker-host.invalid }
+    - { type: pve_vm, id: broker-vm.invalid }
+    - { type: network_uplink, id: gateway-uplink.invalid }
+    - { type: dns_zone, id: primary-dns.invalid }
