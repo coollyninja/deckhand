@@ -1,7 +1,74 @@
+# Deckhand macOS agent inventory — EXAMPLE / TEMPLATE.
+#
+# This is the operator-supplied fact file (spec §22). Every value here is a
+# logical ALIAS → a concrete local reference (bundle id, device name, Focus/
+# Shortcut name, path). The agent NEVER accepts arbitrary commands; a Stream Deck
+# key can only name an alias defined below. Copy this to config/macos.yaml and
+# fill in your real values. Nothing here is secret; keep the real file untracked.
+
+# --- Apps (alias → macOS bundle identifier) --------------------------------
+# Find a bundle id: `osascript -e 'id of app "Terminal"'`
 apps:
-  terminal: com.example.Terminal
-  obs: com.example.OBS
+  terminal: com.apple.Terminal
+  obsidian: md.obsidian
+  # vivaldi: com.vivaldi.Vivaldi
+  # vscode: com.microsoft.VSCode
+
+# --- Browser sessions (alias → URL to open) --------------------------------
 browser_sessions:
-  operations-dashboard: https://DASHBOARD_INTERNAL_NAME/
+  # lab-ops: https://grafana.example.invalid/dashboards
+  # robotics: https://github.com/coollyninja
+
+# --- Apple Shortcuts (alias → exact Shortcut name) -------------------------
 shortcuts:
-  meeting-mode: Deckhand Meeting Mode
+  # note: New Engineering Note
+
+# --- Dev workspaces (alias → absolute path to open) ------------------------
+workspaces:
+  vault: ~/Documents/Vaults/my-vault
+  # project: ~/Documents/Vaults/my-vault/projects/my-project
+
+# --- Audio devices (alias → the device name macOS reports) -----------------
+# List device names: `SwitchAudioSource -a`  (brew install switchaudio-osx)
+audio_outputs:
+  # speakers: MacBook Air Speakers
+  # airpods: AirPods Pro
+audio_inputs:
+  # builtin: MacBook Air Microphone
+  # scarlett: Scarlett Solo USB
+
+# --- Focus modes (alias → a Shortcut name that SETS that Focus) ------------
+# macOS has no Focus CLI, so map each alias to a Shortcut you create in the
+# Shortcuts app ("Set Focus" action). The special alias "_clear" turns Focus off.
+focus_modes:
+  # work: Set Work Focus
+  # personal: Set Personal Focus
+  # _clear: Clear Focus
+
+# --- Pomodoro routines (alias → a Shortcut name that starts it) ------------
+# "_stop" (optional) stops the running routine.
+pomodoro_routines:
+  # deep: Start 50-10 Focus
+  # quick: Start 25-5 Focus
+  # _stop: Stop Focus Timer
+
+# --- Display-mode layouts (alias → a Shortcut name that applies it) --------
+# Build each layout as a Shortcut (or a displayplacer profile invoked by one).
+display_modes:
+  # office: Office Multihead
+  # meeting: Meeting Single
+  # recording: Recording Layout
+  # lab-console: Lab Console
+
+# --- OBS (recording/scene control via obs-websocket v5) --------------------
+# In OBS: Tools → WebSocket Server Settings → enable, note port + password.
+obs:
+  host: 127.0.0.1
+  port: 4455
+  # password_file: /etc/deckhand/secrets/obs-password   # file with the OBS ws password
+  scenes:
+    # main: Main Scene
+    # brb: Be Right Back
+  sources:
+    # cam: Camera
+    # screen: Display Capture

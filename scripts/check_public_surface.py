@@ -53,9 +53,12 @@ def findings(path: Path) -> list[str]:
         return []
     problems: list[str] = []
     lowered = text.lower()
-    # The checker's own source legitimately names the patterns it detects; skip it
-    # so it does not flag itself.
+    # The checker's own source and its test fixtures legitimately contain the
+    # patterns it detects (seeded positive cases); skip them so it does not flag
+    # itself or its own test corpus.
     if path.resolve() == Path(__file__).resolve():
+        return []
+    if path.name == "test_public_surface.py":
         return []
     for phrase in FORBIDDEN_PHRASES:
         if phrase in lowered:
