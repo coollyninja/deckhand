@@ -2,29 +2,50 @@
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "Actions": [
     {
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "Icon": "imgs/action",
       "Name": "Deckhand Status",
       "PropertyInspectorPath": "ui/status.html",
-      "States": [{"Image": "imgs/key", "Title": "STATUS"}],
+      "States": [
+        {
+          "Image": "imgs/key",
+          "Title": "STATUS"
+        }
+      ],
       "UUID": "com.coollyninja.deckhand.status"
     },
     {
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "DisableAutomaticStates": true,
       "Icon": "imgs/action",
       "Name": "Deckhand Action",
       "PropertyInspectorPath": "ui/action.html",
-      "States": [{"Image": "imgs/key", "Title": "ACTION"}],
+      "States": [
+        {
+          "Image": "imgs/key",
+          "Title": "ACTION"
+        }
+      ],
       "UUID": "com.coollyninja.deckhand.action"
     },
     {
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "DisableAutomaticStates": true,
       "Icon": "imgs/action",
       "Name": "Deckhand Local",
       "PropertyInspectorPath": "ui/local.html",
-      "States": [{"Image": "imgs/key", "Title": "LOCAL"}],
+      "States": [
+        {
+          "Image": "imgs/key",
+          "Title": "LOCAL"
+        }
+      ],
       "UUID": "com.coollyninja.deckhand.local"
     }
   ],
@@ -35,10 +56,19 @@
   "Description": "Typed intent and authoritative status for operator-selected systems.",
   "Icon": "imgs/plugin",
   "Name": "Deckhand",
-  "Nodejs": {"Version": "24"},
-  "OS": [{"Platform": "mac", "MinimumVersion": "13"}],
+  "Nodejs": {
+    "Version": "24"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    }
+  ],
   "SDKVersion": 2,
-  "Software": {"MinimumVersion": "7.1"},
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
   "UUID": "com.coollyninja.deckhand",
   "Version": "0.1.0.0"
 }
