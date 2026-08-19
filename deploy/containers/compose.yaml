@@ -22,9 +22,10 @@ x-deckhand-base: &deckhand-base
     DECKHAND_PLUGIN_LOCK_PATH: /opt/deckhand/config/plugins.lock.yaml
   volumes:
     - deckhand-data:/var/lib/deckhand
-    - ../../packages/catalog:/opt/deckhand/packages/catalog:ro
-    - ../../config/plugins.yaml:/opt/deckhand/config/plugins.yaml:ro
-    - ../../config/plugins.lock.yaml:/opt/deckhand/config/plugins.lock.yaml:ro
+    # The image bakes a safe default config (dh-core-only plugins.yaml, the lock,
+    # and the catalog). A private site overlay bind-mounts its own plugins.yaml /
+    # plugins.lock.yaml / catalog over these paths; the base stack needs no host
+    # config file to boot read-only.
   security_opt:
     - no-new-privileges:true
   cap_drop: ["ALL"]

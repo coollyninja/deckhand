@@ -12,8 +12,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY apps/broker/src ./apps/broker/src
 COPY apps/macos-agent/src ./apps/macos-agent/src
+COPY packages ./packages
+COPY config ./config
 RUN uv sync --frozen --no-dev --no-editable \
-    && rm -rf /root/.cache/uv
+    && rm -rf /root/.cache/uv \
+    # Provide a safe default activation (dh-core only) so a fresh deployment boots
+    # read-only without an operator-supplied plugins.yaml. A site overlay can
+    # bind-mount its own plugins.yaml over this default.
+    && cp config/plugins.example.yaml config/plugins.yaml
 
 USER deckhand:deckhand
 EXPOSE 19470
