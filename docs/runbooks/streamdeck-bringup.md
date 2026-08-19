@@ -75,7 +75,7 @@ DECKHAND_ISSUER_CHANNEL=mgmt-mtls \
 The broker is already running on pve0 (LXC 103). Reach it over Tailscale — the
 broker URL is `http://<lxc-103-tailnet-name>:19470` once the LXC is on your
 tailnet, or via an SSH port-forward for a first test:
-`ssh -L 19470:172.29.20.18:19470 root@<pve0>`.
+`ssh -L 19470:<broker-lxc-ip>:19470 root@<pve0>`.
 
 ## 4. Install the plugin
 

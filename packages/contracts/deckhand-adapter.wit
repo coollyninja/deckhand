@@ -1,0 +1,313 @@
+// Deckhand adapter lifecycle contract — WIT world, lifecycle v1 (FROZEN).
+//
+// PHASE-0 CONTRACT DRAFT for the Deckhand × Ganglion migration.
+// This file is a contract artifact, NOT an implementation. It defines the
+// component-model surface a WASM-hosted Deckhand adapter would export.
+//
+// It mirrors, value-for-value, the authoritative field lists in:
+//   - packages/contracts/adapter-lifecycle.schema.json  (the JSON Schema form)
+//   - apps/broker/src/deckhand/adapters.py               (the Adapter Protocol)
+//   - apps/broker/src/deckhand/models.py                 (ActionDefinition/Request/Target)
+// and the lifecycle semantics of ADR-0002 (observe-before-success, structured
+// errors, retry dispositions).
+//
+// FREEZE RULE: this is lifecycle v1. Changing the lifecycle shape (adding,
+// removing, or retyping any operation, record field, or enum case) requires
+// bumping BOTH this package version AND adapter-lifecycle.schema.json together,
+// in the same change. The two artifacts are one contract in two encodings.
+//
+// GAP NOTE: Ganglion's own world (ganglion:capability@0.5.0) exports a single
+// `run(args) -> result<list<u8>, string>` entry point. Deckhand's lifecycle
+// deliberately needs SIX named exports (health/plan/execute/observe/verify/
+// cancel). That "named-export invocation" gap is exactly what this migration
+// closes upstream in the Ganglion WASM host; this world is the contract it must
+// come to satisfy.
+
+package deckhand:adapter@1.0.0;
+
+/// Deckhand adapter lifecycle types and operations, lifecycle v1.
+///
+/// Every record/enum here is a Deckhand-owned model. Arbitrary-JSON fields in
+/// the Python models (`details`, `parameters`, `context`) have no `any` or
+/// free-form map type in WIT, so this interface represents each of them as a
+/// `string` holding CANONICAL JSON (an object literal, e.g. `{}` when empty).
+/// Timestamps (`checked-at`, `observed-at`) are RFC3339 strings, matching the
+/// JSON Schema `format: date-time` fields.
+interface lifecycle {
+    /// A canonical-JSON document carried as a string.
+    ///
+    /// WIT has no `any`/free-form map type, so the arbitrary-JSON fields of the
+    /// Deckhand models (`details`, action `parameters`, request `context`) are
+    /// encoded as a string holding a single canonical JSON value — an object in
+    /// every current use, `"{}"` when empty. Chosen over `list<tuple<string,
+    /// string>>` because the Python side is nested arbitrary JSON, not a flat
+    /// string map; a JSON string is the faithful, lossless representation.
+    type json = string;
+
+    /// An RFC3339 / ISO-8601 date-time string (UTC), e.g. `2026-08-19T12:00:00Z`.
+    /// Mirrors the JSON Schema `format: date-time` timestamps.
+    type timestamp = string;
+
+    /// Confirmation posture an action declares (Deckhand ConfirmationMode).
+    /// Carried on the action reference so the adapter knows whether the host
+    /// gated this mutation behind operator approval before dispatch.
+    enum confirmation-mode {
+        none,
+        confirm,
+        hold,
+        typed,
+        dual-control,
+        policy,
+    }
+
+    /// The minimal, faithful projection of a Deckhand ActionDefinition that an
+    /// adapter needs to act. The full definition also carries title, description,
+    /// risk-class, plugin, target-types, parameter-schema, and policy-action;
+    /// those are host-side policy/validation concerns and are intentionally
+    /// omitted from the adapter's view. What remains is enough to identify the
+    /// action, know whether it mutates, and honor its confirmation + timeout
+    /// contract.
+    record action-ref {
+        /// Dotted action id, e.g. `power.restart` (ActionDefinition.id).
+        id: string,
+        /// Monotonic action version, >= 1 (ActionDefinition.version).
+        version: u32,
+        /// Fully-qualified adapter id that owns this action, e.g.
+        /// `dh-proxmox.power.restart` (ActionDefinition.adapter).
+        adapter: string,
+        /// Whether executing this action mutates target state
+        /// (ActionDefinition.mutation).
+        mutation: bool,
+        /// Declared confirmation posture (ActionDefinition.confirmation).
+        confirmation: confirmation-mode,
+        /// Hard execution deadline in seconds, 1..=3600
+        /// (ActionDefinition.timeout-seconds).
+        timeout-seconds: u32,
+    }
+
+    /// The addressed subject of an action: a target type + id pair.
+    /// Mirrors Deckhand's Target model.
+    record target {
+        /// Lowercase target kind, e.g. `host` (Target.type).
+        %type: string,
+        /// Opaque target identifier (Target.id).
+        id: string,
+    }
+
+    /// A single concrete invocation request. Mirrors the identity-bearing subset
+    /// of Deckhand's ActionRequest (the confirmation token/response are host-side
+    /// approval proofs, not adapter inputs, and are omitted).
+    record action-request {
+        /// Dotted action id this request targets (ActionRequest.action-id).
+        action-id: string,
+        /// Action version this request is bound to (ActionRequest.action-version).
+        action-version: u32,
+        /// The addressed target (ActionRequest.target).
+        target: target,
+        /// Action parameters as canonical JSON (ActionRequest.parameters).
+        parameters: json,
+        /// Request context (client, profile, control, frontmost-app) as
+        /// canonical JSON (ActionRequest.context).
+        context: json,
+        /// UUID string keying idempotent execution (ActionRequest.idempotency-key).
+        idempotency-key: string,
+        /// Whether this is a non-mutating rehearsal (ActionRequest.dry-run).
+        dry-run: bool,
+    }
+
+    /// The result of `plan`: the ordered, human-readable steps the adapter would
+    /// take. Mirrors AdapterPlan. The list is non-empty by contract (Python
+    /// enforces `min_length=1`); WIT cannot express that bound, so callers MUST
+    /// treat an empty list as a contract violation.
+    record plan {
+        /// Ordered plan steps; at least one by contract.
+        steps: list<string>,
+    }
+
+    /// Adapter reachability/readiness. Mirrors AdapterHealth.
+    enum health-state {
+        healthy,
+        degraded,
+        unavailable,
+    }
+
+    /// The result of `health`. Mirrors AdapterHealth.
+    record health {
+        /// Overall adapter state (AdapterHealth.state).
+        state: health-state,
+        /// When the check was taken, RFC3339 (AdapterHealth.checked-at).
+        checked-at: timestamp,
+        /// Free-form health detail as canonical JSON (AdapterHealth.details).
+        details: json,
+    }
+
+    /// The result of `execute`. Mirrors AdapterExecution. Per ADR-0002 the
+    /// execution result is NOT the success signal — success is only confirmed by
+    /// a subsequent `observe` + `verify` (observe-before-success). `reference` is
+    /// the adapter-side handle (job/txn id) used to later observe and cancel.
+    record execution {
+        /// Optional adapter-side handle, <= 512 chars (AdapterExecution.reference).
+        reference: option<string>,
+        /// Free-form execution detail as canonical JSON (AdapterExecution.details).
+        details: json,
+    }
+
+    /// The result of `observe`: the currently observed target state. Mirrors
+    /// AdapterObservation. This is the ground-truth read that `verify` judges
+    /// against — the load-bearing half of observe-before-success.
+    record observation {
+        /// Observed state token, 1..=128 chars (AdapterObservation.state).
+        state: string,
+        /// When the observation was taken, RFC3339 (AdapterObservation.observed-at).
+        observed-at: timestamp,
+        /// Free-form observation detail as canonical JSON
+        /// (AdapterObservation.details).
+        details: json,
+    }
+
+    /// The result of `verify`: whether the observed state satisfies the action's
+    /// intended postcondition. Mirrors AdapterVerification. A `satisfied: true`
+    /// here is what lets the host mark a job SUCCEEDED (ADR-0002).
+    record verification {
+        /// Whether the postcondition is met (AdapterVerification.satisfied).
+        satisfied: bool,
+        /// Free-form verification detail as canonical JSON
+        /// (AdapterVerification.details).
+        details: json,
+    }
+
+    /// Outcome of a cancel attempt. Mirrors CancellationDisposition.
+    /// `unknown` means the adapter could not determine terminal state and the
+    /// host must reconcile.
+    enum cancellation-disposition {
+        cancelled,
+        not-supported,
+        already-terminal,
+        unknown,
+    }
+
+    /// The result of `cancel`. Mirrors AdapterCancellation.
+    record cancellation {
+        /// What happened to the in-flight execution
+        /// (AdapterCancellation.disposition).
+        disposition: cancellation-disposition,
+        /// Free-form cancellation detail as canonical JSON
+        /// (AdapterCancellation.details).
+        details: json,
+    }
+
+    /// Structured failure taxonomy. Mirrors AdapterErrorKind (10 cases) and the
+    /// JSON Schema error `code` enum. Drives host retry + reconciliation policy.
+    enum error-kind {
+        configuration,
+        authentication,
+        authorization,
+        not-found,
+        conflict,
+        rate-limited,
+        unavailable,
+        timeout,
+        protocol,
+        unexpected,
+    }
+
+    /// Whether and how the host may retry after a failure. Mirrors
+    /// RetryDisposition. `reconcile-first` means: do not blindly retry; observe
+    /// actual target state and reconcile before any further action (ADR-0002).
+    enum retry-disposition {
+        never,
+        safe,
+        reconcile-first,
+    }
+
+    /// The structured error every lifecycle operation returns on failure.
+    /// Mirrors AdapterError (adapters.py) and the JSON Schema `error` def
+    /// (as_job_error maps `kind` -> `code`). This is the payload of the `err`
+    /// arm of every operation's `result` below: a failure is never a bare
+    /// string, it always carries kind + retry + reconciliation-required so the
+    /// host can make a policy decision without parsing a message.
+    record adapter-error {
+        /// Failure category (AdapterError.kind -> JobError.code).
+        kind: error-kind,
+        /// Retry posture the host should honor (AdapterError.retry).
+        retry: retry-disposition,
+        /// Whether target state may diverge from intent and MUST be reconciled
+        /// before proceeding (AdapterError.reconciliation-required). Set together
+        /// with `retry: reconcile-first` for unknown/timeout outcomes.
+        reconciliation-required: bool,
+        /// Human-readable message, 1..=1024 chars (AdapterError.message).
+        message: string,
+        /// Free-form error detail as canonical JSON (AdapterError.details).
+        details: json,
+    }
+}
+
+/// The world a Deckhand WASM adapter targets: it EXPORTS the six lifecycle
+/// operations as independently-invokable named functions.
+///
+/// This is the shape ADR-0002 defines for every adapter, made explicit at the
+/// component boundary. The host drives a mutation as:
+///   plan -> (operator confirmation) -> execute -> observe -> verify
+/// and success is asserted ONLY when `verify` reports `satisfied` against a
+/// fresh `observe` (observe-before-success). Any operation may fail with a
+/// structured `adapter-error` carrying the retry/reconciliation policy, never a
+/// bare string.
+///
+/// Contrast with `ganglion:capability@0.5.0`, whose world exports a single
+/// `run(args)`. Deckhand's six named exports are the "named-export invocation"
+/// capability the migration adds to the Ganglion WASM host.
+world deckhand-adapter {
+    use lifecycle.{
+        action-ref,
+        action-request,
+        plan,
+        health,
+        execution,
+        observation,
+        verification,
+        cancellation,
+        adapter-error,
+    };
+
+    /// Report adapter reachability/readiness. Takes no lifecycle inputs.
+    /// On success returns `health`; on failure the structured `adapter-error`.
+    /// (Adapter.health)
+    export health: func() -> result<health, adapter-error>;
+
+    /// Produce the ordered steps this adapter would take for the request, WITHOUT
+    /// mutating anything. Feeds the operator confirmation surface. (Adapter.plan)
+    export plan: func(action: action-ref, request: action-request)
+        -> result<plan, adapter-error>;
+
+    /// Perform the action against the target. Returns an `execution` handle;
+    /// per ADR-0002 this is NOT proof of success — the host must still observe +
+    /// verify. Idempotent on `request.idempotency-key`. (Adapter.execute)
+    export execute: func(action: action-ref, request: action-request)
+        -> result<execution, adapter-error>;
+
+    /// Read the current observed state of the target — the ground truth that
+    /// verify judges. The load-bearing read in observe-before-success.
+    /// (Adapter.observe)
+    export observe: func(action: action-ref, request: action-request)
+        -> result<observation, adapter-error>;
+
+    /// Judge whether the observed state satisfies the action's postcondition.
+    /// A `satisfied: true` is what authorizes the host to mark SUCCEEDED. Takes
+    /// both the prior execution and a fresh observation. (Adapter.verify)
+    export verify: func(
+        action: action-ref,
+        request: action-request,
+        execution: execution,
+        observation: observation,
+    ) -> result<verification, adapter-error>;
+
+    /// Attempt to cancel an in-flight execution. `execution` is optional because
+    /// the host may cancel before any execute handle exists. Returns a
+    /// `cancellation` disposition; `unknown` obliges the host to reconcile.
+    /// (Adapter.cancel)
+    export cancel: func(
+        action: action-ref,
+        request: action-request,
+        execution: option<execution>,
+    ) -> result<cancellation, adapter-error>;
+}
