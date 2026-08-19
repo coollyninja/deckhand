@@ -29,6 +29,7 @@ mcp = [
 
 [project.scripts]
 deckhand-api = "deckhand.main:run"
+deckhand-issuer = "deckhand_macos.issuer:run"
 deckhand-macos-agent = "deckhand_macos.main:run"
 deckhand-mcp = "deckhand.mcp_server:run"
 deckhand-scheduler = "deckhand.scheduler_main:run"

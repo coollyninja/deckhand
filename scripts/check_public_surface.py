@@ -64,6 +64,10 @@ def findings(path: Path) -> list[str]:
         if phrase in lowered:
             problems.append(f"organization-specific phrase {phrase!r}")
     for match in PRIVATE_DNS.finditer(text):
+        # Reverse-DNS application identifiers (com.*/io.*/net.*/org.* … .local) are
+        # Apple/Elgato bundle-UUID convention, not private hostnames.
+        if re.match(r"^(?:com|io|net|org|md|app)\.", match.group(0), re.IGNORECASE):
+            continue
         problems.append(f"private DNS name {match.group(0)!r}")
     for match in TAILNET_DNS.finditer(text):
         problems.append(f"tailnet MagicDNS name {match.group(0)!r}")

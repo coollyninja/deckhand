@@ -17,6 +17,15 @@
       "PropertyInspectorPath": "ui/action.html",
       "States": [{"Image": "imgs/key", "Title": "ACTION"}],
       "UUID": "com.coollyninja.deckhand.action"
+    },
+    {
+      "Controllers": ["Keypad"],
+      "DisableAutomaticStates": true,
+      "Icon": "imgs/action",
+      "Name": "Deckhand Local",
+      "PropertyInspectorPath": "ui/local.html",
+      "States": [{"Image": "imgs/key", "Title": "LOCAL"}],
+      "UUID": "com.coollyninja.deckhand.local"
     }
   ],
   "Author": "Bobby Larson",

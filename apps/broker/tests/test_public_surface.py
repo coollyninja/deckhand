@@ -57,6 +57,8 @@ def test_checker_detects_leak(tmp_path: Path, content: str, needle: str) -> None
         "loopback = 127.0.0.1",  # loopback is fine
         "public = 8.8.8.8",  # public IP is fine
         "bind = 0.0.0.0",  # unspecified is fine
+        'uuid = "com.coollyninja.deckhand.local"',  # reverse-DNS plugin UUID, not a host
+        'bundle = "md.obsidian"',  # app bundle id, not a host
     ],
 )
 def test_checker_allows_clean_surface(tmp_path: Path, content: str) -> None:
