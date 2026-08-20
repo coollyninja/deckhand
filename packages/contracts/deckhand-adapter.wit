@@ -1,8 +1,12 @@
 // Deckhand adapter lifecycle contract — WIT world, lifecycle v1 (FROZEN).
 //
-// PHASE-0 CONTRACT DRAFT for the Deckhand × Ganglion migration.
-// This file is a contract artifact, NOT an implementation. It defines the
-// component-model surface a WASM-hosted Deckhand adapter would export.
+// The IMPLEMENTED lifecycle contract for the Deckhand × Ganglion migration
+// (frozen at Phase 0, now realized). It defines the component-model surface a
+// WASM-hosted Deckhand adapter exports. Four components implement it and pass
+// the frozen conformance suite through a real `gang run`: the Rust pilot
+// dh-http-status and the componentize-py ports dh-prometheus / dh-proxmox /
+// dh-tailscale. This file remains the authoritative contract, not itself an
+// implementation — the components are.
 //
 // It mirrors, value-for-value, the authoritative field lists in:
 //   - packages/contracts/adapter-lifecycle.schema.json  (the JSON Schema form)
@@ -16,12 +20,16 @@
 // bumping BOTH this package version AND adapter-lifecycle.schema.json together,
 // in the same change. The two artifacts are one contract in two encodings.
 //
-// GAP NOTE: Ganglion's own world (ganglion:capability@0.5.0) exports a single
-// `run(args) -> result<list<u8>, string>` entry point. Deckhand's lifecycle
-// deliberately needs SIX named exports (health/plan/execute/observe/verify/
-// cancel). That "named-export invocation" gap is exactly what this migration
-// closes upstream in the Ganglion WASM host; this world is the contract it must
-// come to satisfy.
+// NAMED-EXPORT NOTE: Ganglion's own world (ganglion:capability@0.5.0) exports a
+// single `run(args) -> result<list<u8>, string>` entry point. Deckhand's
+// lifecycle needs SIX named exports (health/plan/execute/observe/verify/cancel,
+// plus describe). That "named-export invocation" gap was closed upstream in
+// Ganglion v2.5.0 (`gang run --export <name>` / `gang sign --exports`), so the
+// physical component exports six run-shaped named functions, each taking its
+// request as canonical JSON in args[0] and returning the matching record here as
+// canonical JSON bytes. This typed world is the LOGICAL contract those JSON
+// shapes satisfy; the physical world the components target is run-shaped (see the
+// per-plugin wasm/wit/*.wit).
 
 package deckhand:adapter@1.0.0;
 
