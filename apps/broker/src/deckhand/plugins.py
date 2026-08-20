@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
@@ -10,7 +11,14 @@ import yaml
 from jsonschema import Draft202012Validator
 from pydantic import Field, model_validator
 
-from .adapters import Adapter, AdapterRegistry, DisabledMutationAdapter, FakeAdapter
+from .adapters import (
+    Adapter,
+    AdapterError,
+    AdapterRegistry,
+    DisabledMutationAdapter,
+    FakeAdapter,
+)
+from .ganglion import GanglionAdapter, GanglionClient, GanglionStatusProvider, WasmConnection
 from .models import ActionDefinition, StrictModel
 from .plugin_api import (
     PLUGIN_API_VERSION,
@@ -36,15 +44,20 @@ class PluginError(RuntimeError):
 
 
 class PluginRuntime(ResiliencePolicy):
-    mode: Literal["in_process", "sidecar"] = "in_process"
+    mode: Literal["in_process", "sidecar", "wasm"] = "in_process"
     sidecar: SidecarConnection | None = None
+    wasm: WasmConnection | None = None
 
     @model_validator(mode="after")
     def validate_isolation_configuration(self) -> PluginRuntime:
         if self.mode == "sidecar" and self.sidecar is None:
             raise ValueError("sidecar runtime requires sidecar connection settings")
-        if self.mode == "in_process" and self.sidecar is not None:
-            raise ValueError("in-process runtime cannot declare sidecar settings")
+        if self.mode == "wasm" and self.wasm is None:
+            raise ValueError("wasm runtime requires wasm connection settings")
+        if self.mode != "sidecar" and self.sidecar is not None:
+            raise ValueError("only the sidecar runtime may declare sidecar settings")
+        if self.mode != "wasm" and self.wasm is not None:
+            raise ValueError("only the wasm runtime may declare wasm settings")
         return self
 
 
@@ -62,7 +75,7 @@ class PluginConfiguration(StrictModel):
 class PluginLockEntry(StrictModel):
     id: str = Field(pattern=r"^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
     version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
-    source: Literal["builtin", "python", "sidecar"]
+    source: Literal["builtin", "python", "sidecar", "wasm"]
     digest: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
 
 
@@ -169,6 +182,7 @@ class PluginManager:
         *,
         allow_external: bool,
         allow_sidecars: bool = False,
+        allow_wasm: bool = False,
     ) -> LoadedPlugins:
         locked = lock.by_id()
         manifests: list[PluginManifest] = []
@@ -191,15 +205,22 @@ class PluginManager:
                     lock_entry,
                     allow_sidecars=allow_sidecars,
                 )
+            elif lock_entry.source == "wasm":
+                manifest, contribution = self._wasm(
+                    plugin_id,
+                    activation,
+                    lock_entry,
+                    allow_wasm=allow_wasm,
+                )
             else:
                 if activation.runtime.mode != "in_process":
                     raise PluginError(
-                        f"plugin {plugin_id!r} lock source does not permit sidecar isolation"
+                        f"plugin {plugin_id!r} lock source does not permit isolated runtime"
                     )
                 in_process_plugin = self._instantiate(lock_entry, allow_external=allow_external)
                 manifest = PluginManifest.model_validate(in_process_plugin.manifest)
             self._validate_manifest(plugin_id, manifest, lock_entry)
-            if lock_entry.source != "sidecar":
+            if lock_entry.source not in ("sidecar", "wasm"):
                 errors = sorted(
                     Draft202012Validator(manifest.config_schema).iter_errors(activation.config),
                     key=lambda item: list(item.path),
@@ -266,6 +287,43 @@ class PluginManager:
                     name: SidecarStatusProvider(name, client) for name in handshake.status_providers
                 },
                 actions=tuple(handshake.actions),
+            ),
+        )
+
+    @staticmethod
+    def _wasm(
+        plugin_id: str,
+        activation: PluginActivation,
+        lock: PluginLockEntry,
+        *,
+        allow_wasm: bool,
+    ) -> tuple[PluginManifest, PluginContribution]:
+        if not allow_wasm:
+            raise PluginError(
+                f"wasm plugin {plugin_id!r} requires DECKHAND_ALLOW_WASM_PLUGINS=true"
+            )
+        if activation.runtime.mode != "wasm" or activation.runtime.wasm is None:
+            raise PluginError(f"wasm plugin {plugin_id!r} requires wasm runtime settings")
+        if activation.config:
+            raise PluginError(
+                f"wasm plugin {plugin_id!r} configuration is declared in its signed manifest"
+            )
+        if lock.digest is None:
+            raise PluginError(f"wasm plugin {plugin_id!r} requires an artifact digest")
+        client = GanglionClient(activation.runtime.wasm)
+        try:
+            description = asyncio.run(client.describe())
+        except (OSError, ValueError, RuntimeError, AdapterError) as error:
+            raise PluginError(f"wasm plugin {plugin_id!r} failed to describe") from error
+        return (
+            description.manifest,
+            PluginContribution(
+                adapters={name: GanglionAdapter(name, client) for name in description.adapters},
+                status_providers={
+                    name: GanglionStatusProvider(name, client)
+                    for name in description.status_providers
+                },
+                actions=tuple(description.actions),
             ),
         )
 

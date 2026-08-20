@@ -22,12 +22,16 @@
             "type": "string",
             "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
           },
-          "source": {"enum": ["builtin", "python", "sidecar"]},
+          "source": {"enum": ["builtin", "python", "sidecar", "wasm"]},
           "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
         },
         "allOf": [
           {
             "if": {"properties": {"source": {"const": "sidecar"}}},
+            "then": {"required": ["digest"]}
+          },
+          {
+            "if": {"properties": {"source": {"const": "wasm"}}},
             "then": {"required": ["digest"]}
           }
         ]

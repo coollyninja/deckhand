@@ -21,8 +21,25 @@
             "additionalProperties": false,
             "properties": {
               "mode": {
-                "enum": ["in_process", "sidecar"],
+                "enum": ["in_process", "sidecar", "wasm"],
                 "default": "in_process"
+              },
+              "wasm": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["data_dir", "robot", "capability"],
+                "properties": {
+                  "gang_binary": {"type": "string", "maxLength": 256, "default": "gang"},
+                  "data_dir": {"type": "string", "pattern": "^/"},
+                  "robot": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+                  "capability": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+                  "invoke_timeout_seconds": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 120,
+                    "default": 20
+                  }
+                }
               },
               "sidecar": {
                 "type": "object",
@@ -130,7 +147,14 @@
                   "required": ["mode"],
                   "properties": {"mode": {"const": "in_process"}}
                 },
-                "then": {"not": {"required": ["sidecar"]}}
+                "then": {"not": {"required": ["sidecar", "wasm"]}}
+              },
+              {
+                "if": {
+                  "required": ["mode"],
+                  "properties": {"mode": {"const": "wasm"}}
+                },
+                "then": {"required": ["wasm"]}
               }
             ]
           }

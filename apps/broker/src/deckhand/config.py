@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     plugin_lock_path: Path = Path("config/plugins.lock.yaml")
     allow_external_plugins: bool = False
     allow_sidecar_plugins: bool = False
+    # The Ganglion WASM isolation tier (ADR-0005). Off by default, fail-closed;
+    # the pilot runs the WASM host in-process, the out-of-process deckhand-wasm-host
+    # is the mutation-capable target (Phase 4).
+    allow_wasm_plugins: bool = False
     opa_url: str = "http://127.0.0.1:8181"
     opa_decision_path: str = "/v1/data/deckhand/authz/decision"
     # Site-overlay-supplied inventory of protected targets that must never be
