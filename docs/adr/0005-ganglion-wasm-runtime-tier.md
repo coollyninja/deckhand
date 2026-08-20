@@ -1,7 +1,7 @@
 # ADR 0005: Ganglion WASM runtime tier
 
-- Status: Proposed
-- Date: 2026-08-19
+- Status: Accepted (implemented in-tree behind the default-off flag; production soak pending)
+- Date: 2026-08-19 (accepted 2026-08-20)
 
 ## Context
 
