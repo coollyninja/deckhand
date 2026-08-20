@@ -36,6 +36,13 @@ The sidecar runtime never imports the plugin distribution into the broker. It ve
 
 Public deployment assets default each sidecar to no network access and bounded CPU, memory, processes, file descriptors, filesystems, devices, namespaces, and syscalls. A private site overlay supplies a service account, broker UID, systemd credentials, and exact `IPAddressAllow=` entries corresponding to reviewed logical egress bindings. These enforcement bindings never belong in a public plugin or pack.
 
+`wasm` runs a signed Ganglion component under `gang`'s no-ambient-authority capability broker, behind the same `Adapter` protocol and inside the same resilience wrapper. It is disabled by default with `DECKHAND_ALLOW_WASM_PLUGINS=false`. The `wasm` runtime chooses one of two transports per plugin via the optional `socket` block:
+
+- No `socket` — the broker embeds the runtime **in-process** and invokes the `gang` CLI. This is a single boundary (the WASM sandbox) and is a development/read-only convenience only. A component that declares any mutating capability (manifest `permissions.mutation` or any per-action `mutation`) fails closed at load on this transport.
+- `socket` set — the broker speaks the ADR-0004 sidecar protocol to an out-of-process `deckhand-wasm-host` process that embeds `gang-wasm-host`. The host runs under its own UID and the hardened sidecar systemd unit, so the component executes behind a **double boundary**: a separate-UID process *and* the WASM no-ambient-authority sandbox. Mutation-capable `wasm` plugins require this out-of-process host. Because the host speaks the sidecar protocol, the broker reaches it with the ordinary `SidecarClient`/`SidecarAdapter` — the handshake verifies the signed artifact, its locked digest, and the manifest exactly as a `sidecar`-source plugin does.
+
+`deploy/systemd/deckhand-wasm-host@.service` ships the public unit for the out-of-process host; its hardening (own UID, `IPAddressDeny=any` by default, bounded CPU/memory/tasks/FDs, stripped capabilities and syscalls) mirrors `deckhand-plugin@.service`. A private `deckhand-site-<site>` drop-in adds resolved egress CIDRs when a component needs outbound HTTPS. See [ADR 0005](adr/0005-ganglion-wasm-runtime-tier.md).
+
 ## Manifest contract
 
 Every plugin declares:

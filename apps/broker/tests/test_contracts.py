@@ -44,3 +44,42 @@ def test_sidecar_activation_matches_published_schema() -> None:
         },
     }
     Draft202012Validator(schema).validate(configuration)
+
+
+def test_wasm_out_of_process_activation_matches_schema_and_model() -> None:
+    # The out-of-process wasm transport: the wasm block gains an optional `socket`
+    # sub-object mirroring the sidecar connection shape. It must validate against
+    # both the published JSON schema and the pydantic PluginConfiguration model.
+    from deckhand.plugins import PluginConfiguration
+
+    schema = json.loads(
+        Path("packages/contracts/plugin-configuration.schema.json").read_text(encoding="utf-8")
+    )
+    configuration = {
+        "schema_version": 1,
+        "plugins": {
+            "dh-example": {
+                "enabled": True,
+                "config": {},
+                "runtime": {
+                    "mode": "wasm",
+                    "wasm": {
+                        "data_dir": "/var/lib/deckhand/plugins/dh-example",
+                        "robot": "up-robot",
+                        "capability": "dh-example-http",
+                        "socket": {
+                            "socket_path": "/run/deckhand/plugins/dh-example/plugin.sock",
+                            "expected_uid": 24001,
+                            "artifact_path": "/opt/deckhand/plugins/dh-example/component.wasm",
+                            "signature_path": "/opt/deckhand/plugins/dh-example/component.wasm.sig",
+                            "public_key_path": "/etc/deckhand/trust/example-publisher.pem",
+                        },
+                    },
+                },
+            }
+        },
+    }
+    Draft202012Validator(schema).validate(configuration)
+    parsed = PluginConfiguration.model_validate(configuration)
+    assert parsed.plugins["dh-example"].runtime.wasm is not None
+    assert parsed.plugins["dh-example"].runtime.wasm.socket is not None

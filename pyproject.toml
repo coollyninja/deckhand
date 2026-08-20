@@ -34,6 +34,7 @@ deckhand-macos-agent = "deckhand_macos.main:run"
 deckhand-mcp = "deckhand.mcp_server:run"
 deckhand-scheduler = "deckhand.scheduler_main:run"
 deckhand-sidecar = "deckhand.sidecar_main:run"
+deckhand-wasm-host = "deckhand.wasm_host_main:run"
 deckhand-worker = "deckhand.worker_main:run"
 sdctl = "deckhand.cli:run"
 

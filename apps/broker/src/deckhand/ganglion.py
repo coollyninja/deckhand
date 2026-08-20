@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,13 @@ from .adapters import (
     UnknownOutcome,
 )
 from .models import ActionDefinition, ActionRequest, RetryDisposition, StatusValue, StrictModel
-from .plugin_api import PluginManifest
+from .plugin_api import PluginContribution, PluginManifest
+from .sidecar import SidecarConnection
+
+# An injected transport for tests: an async callable with the same (export, payload)
+# -> document contract as ``GanglionClient.invoke``. Production never sets one; the
+# fixed-argv subprocess path is the only path unless a test supplies an invoker.
+WasmInvoker = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 # Bound the structured result a component may return, defence-in-depth against a
 # wedged or malicious component flooding the broker. Ganglion also caps its own
@@ -73,14 +80,28 @@ class WasmError(AdapterError):
 
 
 class WasmConnection(StrictModel):
-    """Everything the broker needs to invoke one signed WASM capability locally
-    through the ``gang`` CLI. Real values live only in the private site overlay."""
+    """Everything the broker needs to reach one signed WASM capability.
+
+    Two transports, selected by ``socket``:
+
+    - ``socket is None`` (dev / read-only): the broker invokes the ``gang`` CLI
+      **in-process**, a single boundary (the WASM sandbox). The other fields
+      (``gang_binary``/``data_dir``/``robot``/``capability``) drive that argv.
+    - ``socket`` set (production / mutation-capable): the broker speaks the
+      ADR-0004 sidecar protocol to an out-of-process ``deckhand-wasm-host`` over
+      that Unix socket. The host embeds the runtime under its own UID and the
+      hardened systemd unit, so the component runs behind a **double boundary**
+      (separate UID *and* the WASM no-ambient-authority sandbox). The in-process
+      fields still describe how the *host* builds its own ``GanglionClient``.
+
+    Real values live only in the private site overlay."""
 
     gang_binary: str = Field(default="gang", max_length=256)
     data_dir: Path
     robot: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     capability: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     invoke_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    socket: SidecarConnection | None = None
 
     @field_validator("gang_binary")
     @classmethod
@@ -110,8 +131,14 @@ class GanglionClient:
     never inject a subcommand, flag, or path.
     """
 
-    def __init__(self, connection: WasmConnection) -> None:
+    def __init__(self, connection: WasmConnection, *, invoker: WasmInvoker | None = None) -> None:
         self.connection = connection
+        # Test-only transport seam. When ``None`` (production and the default) the
+        # only path is the fixed-argv subprocess below; the argv, its safety
+        # invariant, and stderr suppression are unchanged. A test may inject a
+        # coroutine returning valid lifecycle JSON so a real ``GanglionClient`` can
+        # drive the host without a ``gang`` binary or a live component.
+        self._invoker = invoker
 
     def _binary(self) -> str:
         resolved = (
@@ -129,6 +156,8 @@ class GanglionClient:
     async def invoke(self, export: str, payload: dict[str, Any]) -> dict[str, Any]:
         if export not in _EXPORTS:
             raise WasmError(f"unknown lifecycle export {export!r}")
+        if self._invoker is not None:
+            return await self._invoker(export, payload)
         binary = self._binary()
         argv = [
             binary,
@@ -150,7 +179,9 @@ class GanglionClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
+            # stderr is intentionally discarded: it may carry peer IDs, paths, or
+            # addresses and is never surfaced (see the non-zero exit branch below).
+            stdout, _stderr = await asyncio.wait_for(
                 process.communicate(), timeout=self.connection.invoke_timeout_seconds
             )
         except FileNotFoundError as error:
@@ -276,3 +307,23 @@ class GanglionStatusProvider:
     async def observe(self) -> StatusValue:
         raw = await self.client.invoke("observe", {"provider": self.provider_id})
         return StatusValue.model_validate(raw)
+
+
+def wasm_contribution(
+    client: GanglionClient,
+    description: WasmDescription,
+) -> PluginContribution:
+    """Build the adapter/status-provider/action contribution for a wasm component.
+
+    The single definition shared by both wasm consumers: the in-process broker
+    path (``plugins.py::_wasm``) and the out-of-process ``deckhand-wasm-host``
+    wrapper. Both bind the same ``GanglionAdapter``/``GanglionStatusProvider`` to
+    the same described names, so the host and the dev path contribute identically.
+    """
+    return PluginContribution(
+        adapters={name: GanglionAdapter(name, client) for name in description.adapters},
+        status_providers={
+            name: GanglionStatusProvider(name, client) for name in description.status_providers
+        },
+        actions=tuple(description.actions),
+    )

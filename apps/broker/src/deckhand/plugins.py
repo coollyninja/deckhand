@@ -18,7 +18,12 @@ from .adapters import (
     DisabledMutationAdapter,
     FakeAdapter,
 )
-from .ganglion import GanglionAdapter, GanglionClient, GanglionStatusProvider, WasmConnection
+from .ganglion import (
+    GanglionClient,
+    WasmConnection,
+    WasmDescription,
+    wasm_contribution,
+)
 from .models import ActionDefinition, StrictModel
 from .plugin_api import (
     PLUGIN_API_VERSION,
@@ -41,6 +46,19 @@ from .status import StatusAggregator, StatusProvider
 
 class PluginError(RuntimeError):
     pass
+
+
+def _description_is_mutation_capable(description: WasmDescription) -> bool:
+    """Whether a described wasm component declares any mutating capability.
+
+    Authoritative on either signal: the manifest-level permission
+    (``permissions.mutation``) or any per-action ``mutation`` flag. Gating on the
+    union is the conservative fail-closed reading — a component that declares
+    mutation anywhere is barred from the single-boundary in-process host.
+    """
+    if description.manifest.permissions.mutation:
+        return True
+    return any(action.mutation for action in description.actions)
 
 
 class PluginRuntime(ResiliencePolicy):
@@ -310,22 +328,67 @@ class PluginManager:
             )
         if lock.digest is None:
             raise PluginError(f"wasm plugin {plugin_id!r} requires an artifact digest")
+        if activation.runtime.wasm.socket is not None:
+            return PluginManager._wasm_out_of_process(plugin_id, activation, lock)
+        return PluginManager._wasm_in_process(plugin_id, activation, lock)
+
+    @staticmethod
+    def _wasm_out_of_process(
+        plugin_id: str,
+        activation: PluginActivation,
+        lock: PluginLockEntry,
+    ) -> tuple[PluginManifest, PluginContribution]:
+        # Production path: reach ``deckhand-wasm-host`` over the ADR-0004 sidecar
+        # transport. The host runs the runtime behind a separate UID (the second
+        # boundary); the reused SidecarClient handshake verifies the signed
+        # artifact, its digest against the lock, and the manifest, exactly as a
+        # ``sidecar``-source plugin does.
+        assert activation.runtime.wasm is not None  # noqa: S101 -- narrowed by caller
+        socket = activation.runtime.wasm.socket
+        assert socket is not None  # noqa: S101 -- branch guard in _wasm
+        assert lock.digest is not None  # noqa: S101 -- checked in _wasm
+        try:
+            client = SidecarClient(plugin_id, socket, lock.digest)
+            handshake = client.handshake()
+        except (OSError, ValueError, RuntimeError) as error:
+            raise PluginError(
+                f"wasm plugin {plugin_id!r} failed secure out-of-process handshake"
+            ) from error
+        return (
+            handshake.manifest,
+            PluginContribution(
+                adapters={
+                    name: SidecarAdapter(name, client) for name in handshake.manifest.adapters
+                },
+                status_providers={
+                    name: SidecarStatusProvider(name, client) for name in handshake.status_providers
+                },
+                actions=tuple(handshake.actions),
+            ),
+        )
+
+    @staticmethod
+    def _wasm_in_process(
+        plugin_id: str,
+        activation: PluginActivation,
+        lock: PluginLockEntry,
+    ) -> tuple[PluginManifest, PluginContribution]:
+        # Dev / read-only convenience: the broker embeds the runtime in-process
+        # (single boundary). Mutation-capable components MUST NOT run here — the
+        # process-boundary control requires the out-of-process host — so a
+        # component that declares any mutating action fails closed at load.
+        assert activation.runtime.wasm is not None  # noqa: S101 -- narrowed by caller
         client = GanglionClient(activation.runtime.wasm)
         try:
             description = asyncio.run(client.describe())
         except (OSError, ValueError, RuntimeError, AdapterError) as error:
             raise PluginError(f"wasm plugin {plugin_id!r} failed to describe") from error
-        return (
-            description.manifest,
-            PluginContribution(
-                adapters={name: GanglionAdapter(name, client) for name in description.adapters},
-                status_providers={
-                    name: GanglionStatusProvider(name, client)
-                    for name in description.status_providers
-                },
-                actions=tuple(description.actions),
-            ),
-        )
+        if _description_is_mutation_capable(description):
+            raise PluginError(
+                f"mutation-capable wasm plugin {plugin_id!r} requires the out-of-process host; "
+                "the in-process CLI transport is a read-only/dev convenience only"
+            )
+        return description.manifest, wasm_contribution(client, description)
 
     def _instantiate(self, lock: PluginLockEntry, *, allow_external: bool) -> DeckhandPlugin:
         if lock.source == "builtin":
