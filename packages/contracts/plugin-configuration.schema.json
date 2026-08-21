@@ -21,7 +21,7 @@
             "additionalProperties": false,
             "properties": {
               "mode": {
-                "enum": ["in_process", "sidecar", "wasm"],
+                "enum": ["in_process", "wasm"],
                 "default": "in_process"
               },
               "wasm": {
@@ -40,7 +40,7 @@
                     "default": 20
                   },
                   "socket": {
-                    "description": "Optional out-of-process transport. When present the plugin is reached over the ADR-0004 sidecar protocol to a deckhand-wasm-host process (double boundary: separate UID + WASM sandbox); mutation-capable wasm plugins require it. Absent, the broker embeds the runtime in-process (single boundary, dev/read-only only). Mirrors the sidecar connection shape.",
+                    "description": "Optional out-of-process transport. When present the plugin is reached over the peer-authenticated Unix-socket host transport to a deckhand-wasm-host process (double boundary: separate UID + WASM sandbox); mutation-capable wasm plugins require it. Absent, the broker embeds the runtime in-process (single boundary, dev/read-only only).",
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
@@ -98,62 +98,6 @@
                   }
                 }
               },
-              "sidecar": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "socket_path",
-                  "expected_uid",
-                  "artifact_path",
-                  "signature_path",
-                  "public_key_path"
-                ],
-                "properties": {
-                  "socket_path": {"type": "string", "pattern": "^/"},
-                  "socket_root": {
-                    "type": "string",
-                    "pattern": "^/",
-                    "default": "/run/deckhand/plugins"
-                  },
-                  "expected_uid": {"type": "integer", "minimum": 0},
-                  "artifact_path": {"type": "string", "pattern": "^/"},
-                  "signature_path": {"type": "string", "pattern": "^/"},
-                  "public_key_path": {"type": "string", "pattern": "^/"},
-                  "trust_root": {
-                    "type": "string",
-                    "pattern": "^/",
-                    "default": "/etc/deckhand/trust"
-                  },
-                  "trust_owner_uid": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "default": 0
-                  },
-                  "artifact_owner_uid": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "default": 0
-                  },
-                  "connect_timeout_seconds": {
-                    "type": "number",
-                    "exclusiveMinimum": 0,
-                    "maximum": 30,
-                    "default": 2
-                  },
-                  "max_frame_bytes": {
-                    "type": "integer",
-                    "minimum": 4096,
-                    "maximum": 4194304,
-                    "default": 1048576
-                  },
-                  "max_artifact_bytes": {
-                    "type": "integer",
-                    "minimum": 1024,
-                    "maximum": 1073741824,
-                    "default": 134217728
-                  }
-                }
-              },
               "timeout_seconds": {
                 "type": "number",
                 "exclusiveMinimum": 0,
@@ -195,16 +139,9 @@
               {
                 "if": {
                   "required": ["mode"],
-                  "properties": {"mode": {"const": "sidecar"}}
-                },
-                "then": {"required": ["sidecar"]}
-              },
-              {
-                "if": {
-                  "required": ["mode"],
                   "properties": {"mode": {"const": "in_process"}}
                 },
-                "then": {"not": {"required": ["sidecar", "wasm"]}}
+                "then": {"not": {"required": ["wasm"]}}
               },
               {
                 "if": {

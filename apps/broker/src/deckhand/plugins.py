@@ -40,8 +40,12 @@ from .resilience import (
     ResilientAdapter,
     ResilientStatusProvider,
 )
-from .sidecar import SidecarAdapter, SidecarClient, SidecarConnection, SidecarStatusProvider
 from .status import StatusAggregator, StatusProvider
+from .wasm_host_transport import (
+    WasmHostAdapter,
+    WasmHostClient,
+    WasmHostStatusProvider,
+)
 
 
 class PluginError(RuntimeError):
@@ -62,18 +66,13 @@ def _description_is_mutation_capable(description: WasmDescription) -> bool:
 
 
 class PluginRuntime(ResiliencePolicy):
-    mode: Literal["in_process", "sidecar", "wasm"] = "in_process"
-    sidecar: SidecarConnection | None = None
+    mode: Literal["in_process", "wasm"] = "in_process"
     wasm: WasmConnection | None = None
 
     @model_validator(mode="after")
     def validate_isolation_configuration(self) -> PluginRuntime:
-        if self.mode == "sidecar" and self.sidecar is None:
-            raise ValueError("sidecar runtime requires sidecar connection settings")
         if self.mode == "wasm" and self.wasm is None:
             raise ValueError("wasm runtime requires wasm connection settings")
-        if self.mode != "sidecar" and self.sidecar is not None:
-            raise ValueError("only the sidecar runtime may declare sidecar settings")
         if self.mode != "wasm" and self.wasm is not None:
             raise ValueError("only the wasm runtime may declare wasm settings")
         return self
@@ -93,7 +92,7 @@ class PluginConfiguration(StrictModel):
 class PluginLockEntry(StrictModel):
     id: str = Field(pattern=r"^dh-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
     version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
-    source: Literal["builtin", "python", "sidecar", "wasm"]
+    source: Literal["builtin", "python", "wasm"]
     digest: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
 
 
@@ -199,7 +198,6 @@ class PluginManager:
         lock: PluginLock,
         *,
         allow_external: bool,
-        allow_sidecars: bool = False,
         allow_wasm: bool = False,
     ) -> LoadedPlugins:
         locked = lock.by_id()
@@ -216,14 +214,7 @@ class PluginManager:
             if lock_entry is None:
                 raise PluginError(f"enabled plugin {plugin_id!r} is not version-locked")
             in_process_plugin: DeckhandPlugin | None = None
-            if lock_entry.source == "sidecar":
-                manifest, contribution = self._sidecar(
-                    plugin_id,
-                    activation,
-                    lock_entry,
-                    allow_sidecars=allow_sidecars,
-                )
-            elif lock_entry.source == "wasm":
+            if lock_entry.source == "wasm":
                 manifest, contribution = self._wasm(
                     plugin_id,
                     activation,
@@ -238,7 +229,7 @@ class PluginManager:
                 in_process_plugin = self._instantiate(lock_entry, allow_external=allow_external)
                 manifest = PluginManifest.model_validate(in_process_plugin.manifest)
             self._validate_manifest(plugin_id, manifest, lock_entry)
-            if lock_entry.source not in ("sidecar", "wasm"):
+            if lock_entry.source != "wasm":
                 errors = sorted(
                     Draft202012Validator(manifest.config_schema).iter_errors(activation.config),
                     key=lambda item: list(item.path),
@@ -271,44 +262,6 @@ class PluginManager:
         )
 
     @staticmethod
-    def _sidecar(
-        plugin_id: str,
-        activation: PluginActivation,
-        lock: PluginLockEntry,
-        *,
-        allow_sidecars: bool,
-    ) -> tuple[PluginManifest, PluginContribution]:
-        if not allow_sidecars:
-            raise PluginError(
-                f"sidecar plugin {plugin_id!r} requires DECKHAND_ALLOW_SIDECAR_PLUGINS=true"
-            )
-        if activation.runtime.mode != "sidecar" or activation.runtime.sidecar is None:
-            raise PluginError(f"sidecar plugin {plugin_id!r} requires sidecar runtime settings")
-        if activation.config:
-            raise PluginError(
-                f"sidecar plugin {plugin_id!r} configuration must be delivered to the sidecar"
-            )
-        if lock.digest is None:
-            raise PluginError(f"sidecar plugin {plugin_id!r} requires an artifact digest")
-        try:
-            client = SidecarClient(plugin_id, activation.runtime.sidecar, lock.digest)
-            handshake = client.handshake()
-        except (OSError, ValueError, RuntimeError) as error:
-            raise PluginError(f"sidecar plugin {plugin_id!r} failed secure handshake") from error
-        return (
-            handshake.manifest,
-            PluginContribution(
-                adapters={
-                    name: SidecarAdapter(name, client) for name in handshake.manifest.adapters
-                },
-                status_providers={
-                    name: SidecarStatusProvider(name, client) for name in handshake.status_providers
-                },
-                actions=tuple(handshake.actions),
-            ),
-        )
-
-    @staticmethod
     def _wasm(
         plugin_id: str,
         activation: PluginActivation,
@@ -338,17 +291,16 @@ class PluginManager:
         activation: PluginActivation,
         lock: PluginLockEntry,
     ) -> tuple[PluginManifest, PluginContribution]:
-        # Production path: reach ``deckhand-wasm-host`` over the ADR-0004 sidecar
-        # transport. The host runs the runtime behind a separate UID (the second
-        # boundary); the reused SidecarClient handshake verifies the signed
-        # artifact, its digest against the lock, and the manifest, exactly as a
-        # ``sidecar``-source plugin does.
+        # Production path: reach ``deckhand-wasm-host`` over the peer-authenticated
+        # Unix-socket host transport. The host runs the runtime behind a separate
+        # UID (the second boundary); the WasmHostClient handshake verifies the
+        # signed artifact, its digest against the lock, and the manifest.
         assert activation.runtime.wasm is not None  # noqa: S101 -- narrowed by caller
         socket = activation.runtime.wasm.socket
         assert socket is not None  # noqa: S101 -- branch guard in _wasm
         assert lock.digest is not None  # noqa: S101 -- checked in _wasm
         try:
-            client = SidecarClient(plugin_id, socket, lock.digest)
+            client = WasmHostClient(plugin_id, socket, lock.digest)
             handshake = client.handshake()
         except (OSError, ValueError, RuntimeError) as error:
             raise PluginError(
@@ -358,10 +310,11 @@ class PluginManager:
             handshake.manifest,
             PluginContribution(
                 adapters={
-                    name: SidecarAdapter(name, client) for name in handshake.manifest.adapters
+                    name: WasmHostAdapter(name, client) for name in handshake.manifest.adapters
                 },
                 status_providers={
-                    name: SidecarStatusProvider(name, client) for name in handshake.status_providers
+                    name: WasmHostStatusProvider(name, client)
+                    for name in handshake.status_providers
                 },
                 actions=tuple(handshake.actions),
             ),

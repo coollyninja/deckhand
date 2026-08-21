@@ -19,36 +19,9 @@ def test_example_plugin_configuration_matches_published_schema() -> None:
     Draft202012Validator(schema).validate(configuration)
 
 
-def test_sidecar_activation_matches_published_schema() -> None:
-    schema = json.loads(
-        Path("packages/contracts/plugin-configuration.schema.json").read_text(encoding="utf-8")
-    )
-    configuration = {
-        "schema_version": 1,
-        "plugins": {
-            "dh-example": {
-                "enabled": True,
-                "config": {},
-                "runtime": {
-                    "mode": "sidecar",
-                    "timeout_seconds": 10,
-                    "sidecar": {
-                        "socket_path": "/run/deckhand/plugins/dh-example/plugin.sock",
-                        "expected_uid": 24001,
-                        "artifact_path": "/opt/deckhand/plugins/dh-example/current",
-                        "signature_path": "/opt/deckhand/plugins/dh-example/current.sig",
-                        "public_key_path": "/etc/deckhand/trust/example-publisher.pem",
-                    },
-                },
-            }
-        },
-    }
-    Draft202012Validator(schema).validate(configuration)
-
-
 def test_wasm_out_of_process_activation_matches_schema_and_model() -> None:
     # The out-of-process wasm transport: the wasm block gains an optional `socket`
-    # sub-object mirroring the sidecar connection shape. It must validate against
+    # sub-object carrying the host transport connection shape. It must validate against
     # both the published JSON schema and the pydantic PluginConfiguration model.
     from deckhand.plugins import PluginConfiguration
 
@@ -88,9 +61,9 @@ def test_wasm_out_of_process_activation_matches_schema_and_model() -> None:
 def test_pre_wasm_site_lock_and_config_still_validate() -> None:
     # ADR-0005 site-overlay upgrade contract: the wasm additions are additive within
     # schema_version 1, so a private deckhand-site-* overlay written BEFORE wasm
-    # existed (only builtin/python/sidecar, no wasm block) validates unchanged and is
-    # never force-upgraded. This pins that contract — a future schema change that
-    # breaks a pre-wasm overlay must bump schema_version, not silently reject it.
+    # existed (only builtin/python, no wasm block) validates unchanged and is never
+    # force-upgraded. This pins that contract — a future schema change that breaks a
+    # pre-wasm overlay must bump schema_version, not silently reject it.
     lock_schema = json.loads(
         Path("packages/contracts/plugin-lock.schema.json").read_text(encoding="utf-8")
     )
@@ -101,12 +74,7 @@ def test_pre_wasm_site_lock_and_config_still_validate() -> None:
         "schema_version": 1,
         "plugins": [
             {"id": "dh-http-status", "version": "0.1.0", "source": "python"},
-            {
-                "id": "dh-proxmox",
-                "version": "0.1.0",
-                "source": "sidecar",
-                "digest": "sha256:" + "a" * 64,
-            },
+            {"id": "dh-proxmox", "version": "0.1.0", "source": "python"},
         ],
     }
     pre_wasm_config = {

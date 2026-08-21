@@ -1,10 +1,10 @@
 [Unit]
 Description=Deckhand out-of-process WASM host (%i)
 # The out-of-process WASM host (ADR-0005 Phase 4). It embeds gang-wasm-host and
-# serves ONE signed WASM capability over the ADR-0004 sidecar transport, so the
-# component runs behind a double boundary: a separate UID (this unit) AND the
-# WASM no-ambient-authority sandbox. Mutation-capable wasm plugins require it.
-# Hardening mirrors deckhand-plugin@.service exactly; a private
+# serves ONE signed WASM capability over the peer-authenticated Unix-socket host
+# transport, so the component runs behind a double boundary: a separate UID (this
+# unit) AND the WASM no-ambient-authority sandbox. Mutation-capable wasm plugins
+# require it. Hardening is fail-closed with no topology; a private
 # deckhand-site-<site> drop-in adds resolved egress CIDRs when a component needs
 # outbound HTTPS (never in this public template).
 After=network-online.target

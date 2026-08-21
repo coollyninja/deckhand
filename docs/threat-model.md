@@ -17,7 +17,7 @@ Deckhand protects infrastructure credentials, action authority, operator/device 
 
 | Threat | Controls | Required evidence |
 |---|---|---|
-| Malicious/buggy plugin | signed/digested sidecar artifact, peer-authenticated Unix socket, strict bounded protocol, per-plugin credentials, service resource limits, default-deny egress | tamper/peer/frame/secret-field tests; lifecycle proxy tests; unit hardening review |
+| Malicious/buggy plugin | signed/digested `gang` WASM component run under a no-ambient-authority WASI context (sockets/env/preopens denied unless a per-call default-deny broker mediates); mutation-capable components run out-of-process under `deckhand-wasm-host`'s own UID and hardened systemd unit, reached over a peer-authenticated Unix socket with a strict bounded protocol; Wasmtime fuel/deadline/memory limits; digest pinned in the lock, publisher via the Ganglion trust store | tamper/peer/frame/secret-field tests; lifecycle proxy tests; frozen conformance suite on the tier; unit hardening review |
 | Spoofed proxy headers | loopback listener, proxy assertion, Serve-stripped identity headers, app capabilities, mTLS | direct/spoof tests return 401 |
 | Accidental press | ensure-state semantics, exact-request confirmation, separate danger UI | confirmation binding/replay tests |
 | Replay/race | UUID idempotency, request digest, single-use token, immediate transaction | concurrency and changed-request tests |
@@ -30,21 +30,22 @@ Deckhand protects infrastructure credentials, action authority, operator/device 
 | Lateral movement | one management NIC, egress allowlists, no public ingress, scoped target roles | firewall review and network probes |
 | Physical hazard | only status/safe-state requests; protected resources excluded; physical controls authoritative | protected-resource matrix review |
 
-## `wasm` isolation-tier parity (ADR-0005)
+## `wasm` isolation-tier controls (ADR-0005)
 
-The controls above describe the `sidecar` isolation tier. ADR-0005's parity gate
-requires every isolation-sensitive row to map to an **equal-or-stronger** control on
-the `wasm` tier before a phase lands; a single weaker row blocks the phase. The rows
-the isolation boundary touches, and the honest reading (parity review current as of
-Phase 4 — the out-of-process host `deckhand-wasm-host` exists in-tree behind the
-default-off `DECKHAND_ALLOW_WASM_PLUGINS`, built and tested, production soak pending):
+The `wasm` tier is the sole isolation tier for third-party or mutation-capable
+plugins; it replaced the removed sidecar tier (ADR-0004). The rows below are the
+primary isolation controls, not a comparison against a prior tier — the
+"replaced" column notes the removed sidecar control only as historical lineage.
+(Parity review current as of Phase 4 — the out-of-process host `deckhand-wasm-host`
+exists in-tree behind the default-off `DECKHAND_ALLOW_WASM_PLUGINS`, built and
+tested, production soak pending.)
 
-| Threat (row above) | `wasm`-tier control | Verdict | Evidence |
+| Threat (row above) | `wasm`-tier control (primary) | Replaced (historical) | Evidence |
 |---|---|---|---|
-| Malicious/buggy plugin | Signed/digested `gang` component under a no-ambient-authority WASI ctx (sockets/env/preopens denied unless a per-call default-deny broker mediates); digest pinned in the lock, publisher via the Ganglion trust store | **Stronger** — no ambient authority at all vs the sidecar's egress-CIDR pins; also portable to macOS, where the sidecar's `SO_PEERCRED` tier cannot run | frozen conformance suite passes identically on the tier; `test_ganglion.py`, `test_wasm_host.py`; real `gang run` instantiation smoke of the pilot |
-| Lateral movement / egress | `ganglion:http/egress` URL allowlist (host + path-prefix + method) enforced host-side, re-validated per call; non-GET/HEAD requires an endpoint signed `:rw` | **Stronger** — application-layer path/method scoping is strictly finer than systemd `IPAddressAllow=` resolved-CIDR pins | egress observed live in the three plugin smoke tests; `:rw` requirement proven load-bearing by a negative control (read-only endpoint blocks POST) |
-| Resource limits | Wasmtime fuel metering + epoch and wall-clock deadlines + `StoreLimits` memory caps; set in the signed manifest (`gang sign --cpu-fuel/--wall-clock-secs/--max-memory-bytes`) | **Stronger** — finer-grained than systemd CPU/memory/task quotas; syscall filtering is moot (no syscalls in the sandbox) | real `gang run` honours the manifest `cpu_fuel`; fuel-exhaustion observed and cleared via the flag |
-| Process-boundary defense-in-depth | The out-of-process `deckhand-wasm-host` runs the runtime under its own UID + the hardened systemd unit, reached over the ADR-0004 peer-authenticated socket — a **double boundary** (Wasmtime sandbox *inside* a separate-UID process). Mutation-capable `wasm` plugins require it; the in-process host is a dev/read-only convenience that fails closed for mutation | **Equal-or-stronger** — separate UID **and** the WASM no-ambient-authority guarantee the sidecar lacks | `deckhand-wasm-host` passes the frozen conformance suite over a real peer-authenticated socket; peer-UID mismatch rejected; mutation-over-in-process gate fails closed (`test_wasm_host.py`) — production soak still pending |
+| Malicious/buggy plugin | Signed/digested `gang` component under a no-ambient-authority WASI ctx (sockets/env/preopens denied unless a per-call default-deny broker mediates); digest pinned in the lock, publisher via the Ganglion trust store; portable to macOS | Replaced the sidecar's egress-CIDR pins and `SO_PEERCRED` tier, which could not run on macOS | frozen conformance suite passes identically on the tier; `test_ganglion.py`, `test_wasm_host.py`; real `gang run` instantiation smoke of the pilot |
+| Lateral movement / egress | `ganglion:http/egress` URL allowlist (host + path-prefix + method) enforced host-side, re-validated per call; non-GET/HEAD requires an endpoint signed `:rw` | Application-layer path/method scoping replaces systemd `IPAddressAllow=` resolved-CIDR pins | egress observed live in the three plugin smoke tests; `:rw` requirement proven load-bearing by a negative control (read-only endpoint blocks POST) |
+| Resource limits | Wasmtime fuel metering + epoch and wall-clock deadlines + `StoreLimits` memory caps; set in the signed manifest (`gang sign --cpu-fuel/--wall-clock-secs/--max-memory-bytes`) | Replaces systemd CPU/memory/task quotas; syscall filtering is moot (no syscalls in the sandbox) | real `gang run` honours the manifest `cpu_fuel`; fuel-exhaustion observed and cleared via the flag |
+| Process-boundary defense-in-depth | The out-of-process `deckhand-wasm-host` runs the runtime under its own UID + a hardened systemd unit, reached over the peer-authenticated Unix-socket host transport — a **double boundary** (Wasmtime sandbox *inside* a separate-UID process). Mutation-capable `wasm` plugins require it; the in-process host is a dev/read-only convenience that fails closed for mutation | The host transport is the sidecar tier's socket/peer/systemd machinery, re-homed | `deckhand-wasm-host` passes the frozen conformance suite over a real peer-authenticated socket; peer-UID mismatch rejected; mutation-over-in-process gate fails closed (`test_wasm_host.py`) — production soak still pending |
 
 Non-isolation rows (spoofed proxy headers, accidental press, replay/race, broker
 compromise, credential disclosure, remote timeout, misleading key state, policy/audit

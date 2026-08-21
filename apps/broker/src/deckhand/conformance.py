@@ -2,9 +2,10 @@
 
 Phase 0 of the Deckhand-Ganglion transition: this is the single, versioned,
 tier-agnostic definition of what it means to be a conformant Deckhand adapter.
-Every isolation tier — ``in_process``, ``sidecar``, and the future ``wasm``
-(Ganglion) tier — must pass the IDENTICAL suite before it can be enabled
-anywhere. The suite is the contract; prose is not.
+Every isolation tier — the ``in_process`` host and the ``wasm`` (Ganglion) tier,
+both its in-process dev host and the out-of-process ``deckhand-wasm-host`` — must
+pass the IDENTICAL suite before it can be enabled anywhere. The suite is the
+contract; prose is not.
 
 ``assert_adapter_conformance(adapter)`` drives any object implementing the
 ``Adapter`` protocol through the six-operation lifecycle
@@ -126,10 +127,10 @@ async def assert_adapter_conformance(
 ) -> None:
     """Drive an adapter through the full lifecycle and assert the frozen contract.
 
-    Tier-agnostic: pass an in-process adapter, a SidecarAdapter, or a future
+    Tier-agnostic: pass an in-process adapter, a WasmHostAdapter, or a
     GanglionAdapter — the assertions are identical. Raises ConformanceError on any
     violation. A tier whose fixture pins a specific action/target (e.g. the
-    sidecar fake) may pass its own ``action``/``request``; the assertions are the
+    wasm-host fake) may pass its own ``action``/``request``; the assertions are the
     same regardless of which concrete action drives them.
     """
     action = action or read_action(adapter_id=adapter_id)

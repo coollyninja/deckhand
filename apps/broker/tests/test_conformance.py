@@ -1,10 +1,10 @@
 """Tier-parametrized adapter lifecycle conformance (lifecycle v1).
 
 Every isolation tier runs the IDENTICAL conformance suite. Today that is the
-in-process tier (FakeAdapter, the reference implementation); the sidecar tier is
-exercised through its own fixture in test_sidecar.py, and the future wasm
-(Ganglion) tier must be added here and pass unchanged before it can be enabled.
-The suite is the frozen contract — see deckhand.conformance.
+in-process tier (FakeAdapter, the reference implementation) and the wasm-host
+transport tier (exercised here through the host-transport fixture, and end-to-end
+over a real socket in test_wasm_host.py). The suite is the frozen contract — see
+deckhand.conformance.
 """
 
 import json
@@ -28,28 +28,28 @@ async def test_in_process_tier_is_conformant() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sidecar_tier_is_conformant(tmp_path: Path) -> None:
-    # The sidecar tier runs the IDENTICAL suite against a live signed sidecar —
-    # proving contract parity across tiers, which is exactly what the wasm tier
-    # will have to do to be enabled. Uses the same server fixture as test_sidecar.
+async def test_wasm_host_transport_tier_is_conformant(tmp_path: Path) -> None:
+    # The wasm-host transport tier runs the IDENTICAL suite against a live signed
+    # plugin over the peer-authenticated socket — proving contract parity across
+    # tiers. Uses the same server fixture as test_wasm_host_transport.
     import asyncio
 
-    from deckhand.sidecar import SidecarAdapter
-    from test_sidecar import ACTION, make_fixture
-    from test_sidecar import request as sidecar_request
+    from deckhand.wasm_host_transport import WasmHostAdapter
+    from test_wasm_host_transport import ACTION, make_fixture
+    from test_wasm_host_transport import request as host_request
 
     isolated = make_fixture(tmp_path)
     await isolated.server.start()
     try:
         await asyncio.to_thread(isolated.client.handshake)
-        adapter = SidecarAdapter("dh-sidecar-test.read", isolated.client)
-        # Drive with the sidecar fixture's own action/target so the fake plugin
+        adapter = WasmHostAdapter("dh-host-test.read", isolated.client)
+        # Drive with the fixture's own action/target so the fake plugin
         # recognises the request; the frozen assertions are identical.
         await assert_adapter_conformance(
             adapter,
-            adapter_id="dh-sidecar-test.read",
+            adapter_id="dh-host-test.read",
             action=ACTION,
-            request=sidecar_request(),
+            request=host_request(),
         )
     finally:
         await isolated.server.close()

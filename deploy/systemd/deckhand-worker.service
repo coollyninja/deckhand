@@ -6,9 +6,9 @@ Requires=deckhand-broker.service
 [Service]
 Type=exec
 # Runs as the same identity as the broker: they share the SQLite job store, and
-# the sidecar authorises exactly one broker peer UID -- so the worker (which also
-# opens a SidecarClient) must present that same UID. A separate worker user would
-# be locked out of both the database and every sidecar plugin.
+# deckhand-wasm-host authorises exactly one broker peer UID -- so the worker (which
+# also opens a WasmHostClient) must present that same UID. A separate worker user
+# would be locked out of both the database and every out-of-process wasm plugin.
 User=deckhand
 Group=deckhand
 WorkingDirectory=/opt/deckhand

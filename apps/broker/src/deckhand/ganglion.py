@@ -1,11 +1,10 @@
 """Ganglion WASM isolation tier (ADR-0005).
 
-The third plugin isolation mode, ``wasm``: a Deckhand adapter runs as a signed
-Ganglion WASM component under gang-wasm-host's no-ambient-authority capability
-broker, invoked through the ``gang`` CLI. It sits behind the existing ``Adapter``
-protocol, inside the ADR-0003 resilience wrapper, exactly where ``SidecarAdapter``
-sits — so nothing above the adapter boundary (jobs, verification, reconciliation,
-confirmation, OPA) changes.
+The plugin isolation mode ``wasm``: a Deckhand adapter runs as a signed Ganglion
+WASM component under gang-wasm-host's no-ambient-authority capability broker,
+invoked through the ``gang`` CLI. It sits behind the existing ``Adapter``
+protocol, inside the ADR-0003 resilience wrapper, at the adapter boundary — so
+nothing above it (jobs, verification, reconciliation, confirmation, OPA) changes.
 
 The six lifecycle operations map to six named WASM exports (Ganglion v2.5
 named-export invocation): the broker calls
@@ -18,7 +17,10 @@ Deckhand. Deckhand pins the capability by exact digest in the plugin lock, mappe
 to the Ganglion trust store.
 
 Feature-flagged and fail-closed: ``DECKHAND_ALLOW_WASM_PLUGINS=false`` by default.
-Sidecar protocol v1 is untouched; this tier coexists with it.
+The ``wasm`` tier is the only plugin isolation tier: an in-process dev/read-only
+host (this module's ``GanglionClient``) and, for mutation, the out-of-process
+``deckhand-wasm-host`` reached over the peer-authenticated Unix-socket host
+transport (``wasm_host_transport``).
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ from .adapters import (
 )
 from .models import ActionDefinition, ActionRequest, RetryDisposition, StatusValue, StrictModel
 from .plugin_api import PluginContribution, PluginManifest
-from .sidecar import SidecarConnection
+from .wasm_host_transport import WasmHostConnection
 
 # An injected transport for tests: an async callable with the same (export, payload)
 # -> document contract as ``GanglionClient.invoke``. Production never sets one; the
@@ -64,7 +66,7 @@ class WasmDescription(StrictModel):
     """What a signed WASM component reports about itself at load — the manifest it
     declares plus its adapter and status-provider names. The Ganglion trust store
     and the exact-digest lock guarantee this description came from the pinned
-    signed artifact, exactly as the sidecar handshake does."""
+    signed artifact, exactly as the host transport handshake does."""
 
     manifest: PluginManifest
     adapters: list[str] = Field(default_factory=list)
@@ -88,11 +90,12 @@ class WasmConnection(StrictModel):
       **in-process**, a single boundary (the WASM sandbox). The other fields
       (``gang_binary``/``data_dir``/``robot``/``capability``) drive that argv.
     - ``socket`` set (production / mutation-capable): the broker speaks the
-      ADR-0004 sidecar protocol to an out-of-process ``deckhand-wasm-host`` over
-      that Unix socket. The host embeds the runtime under its own UID and the
-      hardened systemd unit, so the component runs behind a **double boundary**
-      (separate UID *and* the WASM no-ambient-authority sandbox). The in-process
-      fields still describe how the *host* builds its own ``GanglionClient``.
+      peer-authenticated Unix-socket host transport to an out-of-process
+      ``deckhand-wasm-host`` over that Unix socket. The host embeds the runtime
+      under its own UID and the hardened systemd unit, so the component runs
+      behind a **double boundary** (separate UID *and* the WASM no-ambient-
+      authority sandbox). The in-process fields still describe how the *host*
+      builds its own ``GanglionClient``.
 
     Real values live only in the private site overlay."""
 
@@ -101,7 +104,7 @@ class WasmConnection(StrictModel):
     robot: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     capability: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     invoke_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
-    socket: SidecarConnection | None = None
+    socket: WasmHostConnection | None = None
 
     @field_validator("gang_binary")
     @classmethod
@@ -216,7 +219,7 @@ class GanglionClient:
         """Fetch the component's self-description (manifest + contributed names).
 
         The exact-digest lock plus the Ganglion trust store guarantee this comes
-        from the pinned signed artifact — the wasm analogue of the sidecar
+        from the pinned signed artifact — the wasm analogue of the host transport
         handshake."""
         return WasmDescription.model_validate(await self.invoke("describe", {}))
 
@@ -231,8 +234,8 @@ def _request_payload(action: ActionDefinition, request: ActionRequest) -> dict[s
 class GanglionAdapter:
     """A Deckhand adapter backed by a signed WASM component (the ``wasm`` tier).
 
-    Implements the exact ``Adapter`` protocol the in-process and sidecar tiers do,
-    and passes the identical frozen conformance suite. Mutation transport loss maps
+    Implements the exact ``Adapter`` protocol the in-process host does, and passes
+    the identical frozen conformance suite. Mutation transport loss maps
     to ``UnknownOutcome`` so worker reconciliation is unchanged.
     """
 

@@ -58,7 +58,7 @@ def test_external_plugins_are_fail_closed() -> None:
         PluginManager(external_entry_points={}).load(configuration, lock, allow_external=False)
 
 
-def test_disabled_sidecar_does_not_need_artifact_or_prevent_core_startup() -> None:
+def test_disabled_isolated_plugin_does_not_need_artifact_or_prevent_core_startup() -> None:
     configuration = PluginConfiguration(
         plugins={
             "dh-core": PluginActivation(),
@@ -71,7 +71,7 @@ def test_disabled_sidecar_does_not_need_artifact_or_prevent_core_startup() -> No
             PluginLockEntry(
                 id="dh-removed",
                 version="1.0.0",
-                source="sidecar",
+                source="wasm",
                 digest="sha256:" + "0" * 64,
             ),
         ]
@@ -80,7 +80,7 @@ def test_disabled_sidecar_does_not_need_artifact_or_prevent_core_startup() -> No
         configuration,
         lock,
         allow_external=False,
-        allow_sidecars=False,
+        allow_wasm=False,
     )
     assert [manifest.id for manifest in loaded.manifests] == ["dh-core"]
 
@@ -90,7 +90,7 @@ def test_removed_plugin_absent_from_config_and_lock_does_not_prevent_startup() -
         default_plugin_configuration(),
         default_plugin_lock(),
         allow_external=False,
-        allow_sidecars=False,
+        allow_wasm=False,
     )
     assert [manifest.id for manifest in loaded.manifests] == ["dh-core"]
 

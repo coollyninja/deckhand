@@ -2,15 +2,15 @@
 
 The double boundary: a signed WASM component runs under ``gang``'s no-ambient-
 authority sandbox INSIDE a ``deckhand-wasm-host`` process that itself runs under
-its own UID and the hardened sidecar systemd unit. The host speaks the EXISTING
-ADR-0004 sidecar transport, so the broker reaches it with the ordinary
-``SidecarClient`` — indistinguishable from a ``sidecar``-source plugin.
+its own UID and the hardened systemd unit. The host speaks the peer-authenticated
+Unix-socket host transport, so the broker reaches it with the ordinary
+``WasmHostClient``.
 
-The load-bearing test stands up a real ``deckhand-wasm-host`` ``SidecarServer`` on
+The load-bearing test stands up a real ``deckhand-wasm-host`` ``WasmHostServer`` on
 a tmp socket whose ``GanglionClient`` uses a FAKE invoker (no ``gang`` binary, no
 live component) and runs the IDENTICAL frozen conformance suite through a
-``SidecarClient``/``SidecarAdapter`` — it must pass exactly as the in-process wasm
-tier and the sidecar tier do.
+``WasmHostClient``/``WasmHostAdapter`` — it must pass exactly as the in-process
+wasm tier does.
 """
 
 import asyncio
@@ -39,15 +39,15 @@ from deckhand.plugins import (
     PluginManager,
     PluginRuntime,
 )
-from deckhand.sidecar import (
-    SidecarAdapter,
-    SidecarClient,
-    SidecarConnection,
-    SidecarProtocolError,
-    SidecarServer,
+from deckhand.wasm_host_main import _WasmHostPlugin
+from deckhand.wasm_host_transport import (
+    HostProtocolError,
+    WasmHostAdapter,
+    WasmHostClient,
+    WasmHostConnection,
+    WasmHostServer,
     artifact_digest,
 )
-from deckhand.wasm_host_main import _WasmHostPlugin
 
 PLUGIN_ID = "dh-http-status"
 ADAPTER_ID = "dh-http-status.read"
@@ -85,7 +85,7 @@ class FakeInvoker:
         raise AssertionError(f"unexpected export {export}")
 
     def _describe(self) -> dict[str, Any]:
-        # Always declare the conformance read action so the host SidecarServer
+        # Always declare the conformance read action so the host WasmHostServer
         # recognises the action the frozen suite drives it with.
         actions: list[dict[str, Any]] = [read_action(adapter_id=ADAPTER_ID).model_dump(mode="json")]
         if self._mutation:
@@ -128,11 +128,11 @@ class FakeInvoker:
 
 @dataclass
 class WasmHostFixture:
-    server: SidecarServer
-    client: SidecarClient
+    server: WasmHostServer
+    client: WasmHostClient
     artifact: Path
     socket_root: Path
-    connection: SidecarConnection
+    connection: WasmHostConnection
     invoker: FakeInvoker
 
     def cleanup(self) -> None:
@@ -146,12 +146,12 @@ async def make_host_fixture(
     broker_uid: int | None = None,
     expected_uid: int | None = None,
 ) -> WasmHostFixture:
-    """Stand up a real deckhand-wasm-host SidecarServer over a fake ``gang``.
+    """Stand up a real deckhand-wasm-host WasmHostServer over a fake ``gang``.
 
-    Mirrors the sidecar fixture: a signed+digested artifact, an Ed25519 trust key,
+    Mirrors the host-transport fixture: a signed+digested artifact, an Ed25519 trust key,
     and a peer-authenticated Unix socket. The host builds its own GanglionClient
     with the injected fake invoker, describes it, wraps it as a DeckhandPlugin, and
-    serves it via the EXISTING SidecarServer.
+    serves it via the EXISTING WasmHostServer.
     """
     invoker = invoker or FakeInvoker()
     socket_base = Path("/private/tmp") if sys.platform == "darwin" else Path("/tmp")  # noqa: S108
@@ -178,7 +178,7 @@ async def make_host_fixture(
     signature_path = tmp_path / f"{PLUGIN_ID}.sig"
     signature_path.write_bytes(base64.b64encode(private_key.sign(digest.encode("ascii"))))
 
-    connection = SidecarConnection(
+    connection = WasmHostConnection(
         socket_path=socket_directory / "plugin.sock",
         socket_root=socket_root,
         expected_uid=os.getuid() if expected_uid is None else expected_uid,
@@ -201,7 +201,7 @@ async def make_host_fixture(
     description = await ganglion_client.describe()
     plugin = _WasmHostPlugin(ganglion_client, description)
 
-    server = SidecarServer(
+    server = WasmHostServer(
         plugin=plugin,
         config={},
         artifact_path=artifact,
@@ -211,7 +211,7 @@ async def make_host_fixture(
     )
     return WasmHostFixture(
         server=server,
-        client=SidecarClient(PLUGIN_ID, connection, digest),
+        client=WasmHostClient(PLUGIN_ID, connection, digest),
         artifact=artifact,
         socket_root=socket_root,
         connection=connection,
@@ -224,13 +224,13 @@ async def test_out_of_process_wasm_host_passes_the_frozen_conformance_suite(
     tmp_path: Path,
 ) -> None:
     # THE LOAD-BEARING TEST. The out-of-process host runs the IDENTICAL frozen
-    # conformance suite the in-process wasm tier and the sidecar tier pass —
-    # driven through a real SidecarClient/SidecarAdapter over the socket.
+    # conformance suite the in-process wasm tier passes —
+    # driven through a real WasmHostClient/WasmHostAdapter over the socket.
     isolated = await make_host_fixture(tmp_path)
     await isolated.server.start()
     try:
         await asyncio.to_thread(isolated.client.handshake)
-        adapter = SidecarAdapter(ADAPTER_ID, isolated.client)
+        adapter = WasmHostAdapter(ADAPTER_ID, isolated.client)
         await assert_adapter_conformance(adapter, adapter_id=ADAPTER_ID)
         for export in ("health", "plan", "execute", "observe", "verify", "cancel"):
             assert export in isolated.invoker.calls
@@ -242,7 +242,7 @@ async def test_out_of_process_wasm_host_passes_the_frozen_conformance_suite(
 @pytest.mark.asyncio
 async def test_host_reports_the_locked_digest_and_rejects_a_mismatch(tmp_path: Path) -> None:
     # The handshake reports the locked artifact digest; a client that expects a
-    # different digest is refused before any lifecycle call (reused sidecar path).
+    # different digest is refused before any lifecycle call (host-transport path).
     isolated = await make_host_fixture(tmp_path)
     await isolated.server.start()
     try:
@@ -250,8 +250,8 @@ async def test_host_reports_the_locked_digest_and_rejects_a_mismatch(tmp_path: P
         assert handshake.artifact_digest == artifact_digest(isolated.artifact, max_bytes=1024)
 
         wrong = "sha256:" + "0" * 64
-        with pytest.raises(SidecarProtocolError, match="digest"):
-            SidecarClient(PLUGIN_ID, isolated.connection, wrong)
+        with pytest.raises(HostProtocolError, match="digest"):
+            WasmHostClient(PLUGIN_ID, isolated.connection, wrong)
     finally:
         await isolated.server.close()
         isolated.cleanup()
@@ -260,13 +260,13 @@ async def test_host_reports_the_locked_digest_and_rejects_a_mismatch(tmp_path: P
 @pytest.mark.asyncio
 async def test_host_rejects_peer_uid_mismatch(tmp_path: Path) -> None:
     # A broker whose UID does not match the host's configured broker_uid gets no
-    # service — the SidecarServer drops the connection before dispatch.
+    # service — the WasmHostServer drops the connection before dispatch.
     isolated = await make_host_fixture(tmp_path, broker_uid=os.getuid() + 1)
     await isolated.server.start()
     try:
-        adapter = SidecarAdapter(ADAPTER_ID, isolated.client)
+        adapter = WasmHostAdapter(ADAPTER_ID, isolated.client)
         # The server drops the connection before dispatch, so the client observes
-        # transport loss (a SidecarTransportError / AdapterError), never a result.
+        # transport loss (a HostTransportError / AdapterError), never a result.
         with pytest.raises(AdapterError):
             await adapter.health()
     finally:
@@ -277,7 +277,7 @@ async def test_host_rejects_peer_uid_mismatch(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_broker_loads_wasm_over_the_out_of_process_host(tmp_path: Path) -> None:
     # A wasm-source plugin whose runtime declares a socket transport loads through
-    # the SidecarClient handshake — the production out-of-process path end to end.
+    # the WasmHostClient handshake — the production out-of-process path end to end.
     isolated = await make_host_fixture(tmp_path)
     await isolated.server.start()
     try:
@@ -371,7 +371,7 @@ def test_mutation_capable_wasm_requires_the_out_of_process_host(tmp_path: Path) 
 @pytest.mark.asyncio
 async def test_host_mutation_transport_loss_is_unknown_outcome(tmp_path: Path) -> None:
     # Mutation transport loss over the socket to the host maps to UnknownOutcome so
-    # the worker reconciles rather than concluding FAILED — the SidecarAdapter
+    # the worker reconciles rather than concluding FAILED — the WasmHostAdapter
     # mutation path already does this; assert it holds for the host-backed adapter.
     isolated = await make_host_fixture(tmp_path)
     # Never start the server: the connect fails, i.e. transport is lost.
@@ -379,7 +379,7 @@ async def test_host_mutation_transport_loss_is_unknown_outcome(tmp_path: Path) -
         update={"risk_class": RiskClass.REVERSIBLE, "mutation": True}
     )
     request = conformance_request(action)
-    adapter = SidecarAdapter(ADAPTER_ID, isolated.client)
+    adapter = WasmHostAdapter(ADAPTER_ID, isolated.client)
     try:
         with pytest.raises(UnknownOutcome):
             await adapter.execute(action, request)

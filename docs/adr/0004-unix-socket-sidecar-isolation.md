@@ -1,7 +1,11 @@
 # ADR 0004: Unix-socket sidecar isolation
 
-- Status: Accepted
+- Status: Superseded by ADR-0005 (the sidecar plugin tier is removed; its Unix-socket peer-authenticated transport is retained as the deckhand-wasm-host transport).
 - Date: 2026-08-16
+
+## Superseded
+
+The sidecar-as-a-plugin-isolation-tier described below is gone. ADR-0005 makes the `wasm` tier the sole isolation tier (an in-process dev/read-only host plus the out-of-process `deckhand-wasm-host`), and there is no longer a `sidecar` lock source or runtime mode, no `deckhand-sidecar` entry point, and no plugin-as-a-sidecar loader. What lives on is precisely the transport this ADR designed: the length-prefixed JSON protocol, `SO_PEERCRED` peer authentication, and signed-artifact/digest/trust verification. That transport was re-homed to `deckhand.wasm_host_transport` (renamed `WasmHost*`) and is the peer-authenticated socket over which the broker reaches `deckhand-wasm-host`. Read the decision below as the historical rationale for that transport, not as a currently-selectable plugin tier.
 
 ## Context
 

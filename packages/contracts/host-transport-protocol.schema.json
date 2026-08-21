@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://deckhand.invalid/schemas/sidecar-protocol.schema.json",
-  "title": "Deckhand sidecar protocol v1 envelopes",
+  "$id": "https://deckhand.invalid/schemas/host-transport-protocol.schema.json",
+  "title": "Deckhand wasm-host transport protocol v1 envelopes",
   "$defs": {
     "plugin_id": {
       "type": "string",

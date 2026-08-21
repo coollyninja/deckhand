@@ -3,19 +3,18 @@
 This is the second boundary. The in-process ``wasm`` tier (``ganglion.py``) runs
 the ``gang`` sandbox inside the broker: a single boundary, fine for dev/read-only.
 Mutation-capable wasm plugins need a separate-UID process around the sandbox, and
-this entry point is it — structurally a mirror of ``sidecar_main.py``.
+this entry point is it.
 
 It builds a ``GanglionClient`` for one signed WASM capability, describes it, wraps
-that description as a ``DeckhandPlugin``, and serves it over the EXISTING ADR-0004
-sidecar transport (``SidecarServer``: peer-auth via ``SO_PEERCRED``, length-prefixed
-JSON frames). No new protocol. Run under its own UID and the hardened sidecar
-systemd unit, the component then executes behind a **double boundary**: the
-Wasmtime no-ambient-authority sandbox *inside* a separate-UID process. The broker
-reaches it with the ordinary ``SidecarClient``, indistinguishable from a
-``sidecar``-source plugin.
+that description as a ``DeckhandPlugin``, and serves it over the peer-authenticated
+Unix-socket host transport (``WasmHostServer``: peer-auth via ``SO_PEERCRED``,
+length-prefixed JSON frames). No new protocol. Run under its own UID and the
+hardened systemd unit, the component then executes behind a **double boundary**:
+the Wasmtime no-ambient-authority sandbox *inside* a separate-UID process. The
+broker reaches it with the ordinary ``WasmHostClient``.
 
 Wasm plugins carry no broker-side config (their config lives in the signed
-manifest), so the served ``SidecarServer`` config is always empty.
+manifest), so the served ``WasmHostServer`` config is always empty.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from pathlib import Path
 
 from .ganglion import GanglionClient, WasmConnection, WasmDescription, wasm_contribution
 from .plugin_api import PluginContext, PluginContribution, PluginManifest
-from .sidecar import DEFAULT_MAX_FRAME_BYTES, SidecarServer
+from .wasm_host_transport import DEFAULT_MAX_FRAME_BYTES, WasmHostServer
 
 
 class _WasmHostPlugin:
@@ -64,7 +63,7 @@ async def _serve(arguments: argparse.Namespace) -> None:
     client = GanglionClient(connection)
     description = await client.describe()
     plugin = _WasmHostPlugin(client, description)
-    server = SidecarServer(
+    server = WasmHostServer(
         plugin=plugin,
         config={},
         artifact_path=arguments.artifact_path,

@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     plugin_config_path: Path = Path("config/plugins.yaml")
     plugin_lock_path: Path = Path("config/plugins.lock.yaml")
     allow_external_plugins: bool = False
-    allow_sidecar_plugins: bool = False
     # The Ganglion WASM isolation tier (ADR-0005). Off by default, fail-closed;
     # the pilot runs the WASM host in-process, the out-of-process deckhand-wasm-host
     # is the mutation-capable target (Phase 4).

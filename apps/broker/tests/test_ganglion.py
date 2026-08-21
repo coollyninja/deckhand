@@ -1,9 +1,9 @@
 """Ganglion WASM isolation tier (ADR-0005).
 
 The load-bearing test: a wasm-tier adapter passes the IDENTICAL frozen conformance
-suite the in-process and sidecar tiers pass. Uses a fake `gang` invoker so no real
-binary or component is needed — the fake returns valid deckhand:adapter lifecycle
-JSON for each named export.
+suite the in-process host passes. Uses a fake `gang` invoker so no real binary or
+component is needed — the fake returns valid deckhand:adapter lifecycle JSON for
+each named export.
 """
 
 from pathlib import Path
@@ -33,7 +33,7 @@ class FakeInvoker:
 
     Returns valid deckhand:adapter@1.0.0 lifecycle results for every export, so a
     GanglionAdapter built on it must satisfy the frozen conformance suite exactly
-    as the in-process and sidecar tiers do.
+    as the in-process host does.
     """
 
     def __init__(self) -> None:

@@ -1,3 +1,12 @@
+"""Transport-level coverage for the peer-authenticated Unix-socket host transport.
+
+These tests drive the transport that ``deckhand-wasm-host`` speaks — peer auth,
+framing, handshake, signed-artifact/digest verification, and mutation-transport
+loss — through the ``WasmHost*`` symbols, standing a plugin up behind a real
+``WasmHostServer`` on a tmp socket exactly as ``test_wasm_host.py`` does. End-to-end
+loading through ``PluginManager`` over the socket is covered by ``test_wasm_host.py``.
+"""
+
 import asyncio
 import base64
 import os
@@ -27,21 +36,13 @@ from deckhand.plugin_api import (
     PluginPermissions,
     StaticStatusProvider,
 )
-from deckhand.plugins import (
-    PluginActivation,
-    PluginConfiguration,
-    PluginLock,
-    PluginLockEntry,
-    PluginManager,
-    PluginRuntime,
-)
-from deckhand.sidecar import (
-    SidecarAdapter,
-    SidecarClient,
-    SidecarConnection,
-    SidecarProtocolError,
-    SidecarServer,
-    SidecarStatusProvider,
+from deckhand.wasm_host_transport import (
+    HostProtocolError,
+    WasmHostAdapter,
+    WasmHostClient,
+    WasmHostConnection,
+    WasmHostServer,
+    WasmHostStatusProvider,
     artifact_digest,
 )
 
@@ -51,8 +52,8 @@ ACTION = ActionDefinition(
     title="Observe resource",
     description="Read one deterministic test resource.",
     risk_class=RiskClass.READ,
-    plugin="dh-sidecar-test",
-    adapter="dh-sidecar-test.read",
+    plugin="dh-host-test",
+    adapter="dh-host-test.read",
     target_types=["test_resource"],
     parameter_schema={"type": "object", "additionalProperties": False},
     policy_action="test.resource.observe",
@@ -67,11 +68,11 @@ class FixturePlugin:
     @property
     def manifest(self) -> PluginManifest:
         return PluginManifest(
-            id="dh-sidecar-test",
-            name="Sidecar test",
+            id="dh-host-test",
+            name="Host transport test",
             version="1.0.0",
-            description="Deterministic sidecar test plugin.",
-            adapters=["dh-sidecar-test.read"],
+            description="Deterministic host transport test plugin.",
+            adapters=["dh-host-test.read"],
             status_provider_types=["test-resource"],
             actions=[ACTION.id],
             permissions=PluginPermissions(mutation=False),
@@ -80,7 +81,7 @@ class FixturePlugin:
     def build(self, context: PluginContext) -> PluginContribution:
         assert context.config == {"enabled": True}
         return PluginContribution(
-            adapters={"dh-sidecar-test.read": FakeAdapter()},
+            adapters={"dh-host-test.read": FakeAdapter()},
             status_providers={"test_resource": StaticStatusProvider(StatusValue(state="healthy"))},
             actions=(ACTION,),
         )
@@ -96,19 +97,19 @@ class LeakyPlugin(FixturePlugin):
     def build(self, context: PluginContext) -> PluginContribution:
         contribution = super().build(context)
         return PluginContribution(
-            adapters={"dh-sidecar-test.read": LeakyAdapter()},
+            adapters={"dh-host-test.read": LeakyAdapter()},
             status_providers=contribution.status_providers,
             actions=contribution.actions,
         )
 
 
 @dataclass
-class SidecarFixture:
-    server: SidecarServer
-    client: SidecarClient
+class HostFixture:
+    server: WasmHostServer
+    client: WasmHostClient
     artifact: Path
     socket_root: Path
-    connection: SidecarConnection
+    connection: WasmHostConnection
 
     def cleanup(self) -> None:
         shutil.rmtree(self.socket_root)
@@ -126,15 +127,15 @@ def request() -> ActionRequest:
     )
 
 
-def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> SidecarFixture:
+def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> HostFixture:
     socket_base = Path("/private/tmp") if sys.platform == "darwin" else Path("/tmp")  # noqa: S108
-    socket_root = socket_base / f"dh-sc-{uuid4().hex[:8]}"
+    socket_root = socket_base / f"dh-ht-{uuid4().hex[:8]}"
     socket_root.mkdir(mode=0o700)
-    socket_directory = socket_root / "dh-sidecar-test"
+    socket_directory = socket_root / "dh-host-test"
     socket_directory.mkdir(mode=0o700)
 
-    artifact = tmp_path / "dh-sidecar-test.pyz"
-    artifact.write_bytes(b"deterministic sidecar artifact")
+    artifact = tmp_path / "dh-host-test.pyz"
+    artifact.write_bytes(b"deterministic host transport artifact")
     digest = artifact_digest(artifact, max_bytes=1024)
 
     trust_root = tmp_path / "trust"
@@ -148,10 +149,10 @@ def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> Sidecar
         )
     )
     public_key_path.chmod(0o600)
-    signature_path = tmp_path / "dh-sidecar-test.sig"
+    signature_path = tmp_path / "dh-host-test.sig"
     signature_path.write_bytes(base64.b64encode(private_key.sign(digest.encode("ascii"))))
 
-    connection = SidecarConnection(
+    connection = WasmHostConnection(
         socket_path=socket_directory / "plugin.sock",
         socket_root=socket_root,
         expected_uid=os.getuid(),
@@ -163,7 +164,7 @@ def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> Sidecar
         artifact_owner_uid=os.getuid(),
         max_artifact_bytes=1024,
     )
-    server = SidecarServer(
+    server = WasmHostServer(
         plugin=plugin or FixturePlugin(),
         config={"enabled": True},
         artifact_path=artifact,
@@ -171,9 +172,9 @@ def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> Sidecar
         broker_uid=os.getuid(),
         max_artifact_bytes=1024,
     )
-    return SidecarFixture(
+    return HostFixture(
         server=server,
-        client=SidecarClient("dh-sidecar-test", connection, digest),
+        client=WasmHostClient("dh-host-test", connection, digest),
         artifact=artifact,
         socket_root=socket_root,
         connection=connection,
@@ -181,16 +182,16 @@ def make_fixture(tmp_path: Path, plugin: FixturePlugin | None = None) -> Sidecar
 
 
 @pytest.mark.asyncio
-async def test_signed_sidecar_proxies_complete_lifecycle_and_status(tmp_path: Path) -> None:
+async def test_signed_host_proxies_complete_lifecycle_and_status(tmp_path: Path) -> None:
     isolated = make_fixture(tmp_path)
     await isolated.server.start()
     try:
         handshake = await asyncio.to_thread(isolated.client.handshake)
-        assert handshake.manifest.id == "dh-sidecar-test"
+        assert handshake.manifest.id == "dh-host-test"
         assert handshake.artifact_digest == artifact_digest(isolated.artifact, max_bytes=1024)
         assert handshake.status_providers == ["test_resource"]
 
-        adapter = SidecarAdapter("dh-sidecar-test.read", isolated.client)
+        adapter = WasmHostAdapter("dh-host-test.read", isolated.client)
         action_request = request()
         assert (await adapter.health()).state == "healthy"
         plan = await adapter.plan(ACTION, action_request)
@@ -198,7 +199,7 @@ async def test_signed_sidecar_proxies_complete_lifecycle_and_status(tmp_path: Pa
         observation = await adapter.observe(ACTION, action_request)
         verification = await adapter.verify(ACTION, action_request, execution, observation)
         cancellation = await adapter.cancel(ACTION, action_request, execution)
-        status = await SidecarStatusProvider("test_resource", isolated.client).observe()
+        status = await WasmHostStatusProvider("test_resource", isolated.client).observe()
 
         assert plan.steps
         assert execution.reference
@@ -212,11 +213,11 @@ async def test_signed_sidecar_proxies_complete_lifecycle_and_status(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_sidecar_rejects_sensitive_result_fields(tmp_path: Path) -> None:
+async def test_host_rejects_sensitive_result_fields(tmp_path: Path) -> None:
     isolated = make_fixture(tmp_path, LeakyPlugin())
     await isolated.server.start()
     try:
-        adapter = SidecarAdapter("dh-sidecar-test.read", isolated.client)
+        adapter = WasmHostAdapter("dh-host-test.read", isolated.client)
         with pytest.raises(AdapterError) as captured:
             await adapter.health()
         assert captured.value.kind == AdapterErrorKind.PROTOCOL
@@ -226,53 +227,13 @@ async def test_sidecar_rejects_sensitive_result_fields(tmp_path: Path) -> None:
         isolated.cleanup()
 
 
-@pytest.mark.asyncio
-async def test_plugin_manager_loads_signed_sidecar_without_importing_distribution(
-    tmp_path: Path,
-) -> None:
-    isolated = make_fixture(tmp_path)
-    await isolated.server.start()
-    try:
-        configuration = PluginConfiguration(
-            plugins={
-                "dh-sidecar-test": PluginActivation(
-                    runtime=PluginRuntime(mode="sidecar", sidecar=isolated.connection)
-                )
-            }
-        )
-        lock = PluginLock(
-            plugins=[
-                PluginLockEntry(
-                    id="dh-sidecar-test",
-                    version="1.0.0",
-                    source="sidecar",
-                    digest=isolated.client.expected_digest,
-                )
-            ]
-        )
-        loaded = await asyncio.to_thread(
-            lambda: PluginManager(external_entry_points={}).load(
-                configuration,
-                lock,
-                allow_external=False,
-                allow_sidecars=True,
-            )
-        )
-        assert [manifest.id for manifest in loaded.manifests] == ["dh-sidecar-test"]
-        assert loaded.adapters.get("dh-sidecar-test.read") is not None
-        assert (await loaded.status.domain("test_resource")).state == "healthy"
-    finally:
-        await isolated.server.close()
-        isolated.cleanup()
-
-
-def test_sidecar_rejects_tampered_artifact_before_connect(tmp_path: Path) -> None:
+def test_host_rejects_tampered_artifact_before_connect(tmp_path: Path) -> None:
     isolated = make_fixture(tmp_path)
     try:
         isolated.artifact.write_bytes(b"tampered")
-        with pytest.raises(SidecarProtocolError, match="digest"):
-            SidecarClient(
-                "dh-sidecar-test",
+        with pytest.raises(HostProtocolError, match="digest"):
+            WasmHostClient(
+                "dh-host-test",
                 isolated.client.connection,
                 isolated.client.expected_digest,
             )
@@ -281,7 +242,7 @@ def test_sidecar_rejects_tampered_artifact_before_connect(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_sidecar_transport_loss_during_mutation_requires_reconciliation(
+async def test_host_transport_loss_during_mutation_requires_reconciliation(
     tmp_path: Path,
 ) -> None:
     isolated = make_fixture(tmp_path)
@@ -295,7 +256,7 @@ async def test_sidecar_transport_loss_during_mutation_requires_reconciliation(
     )
     mutation_request = request().model_copy(update={"action_id": mutation.id})
     try:
-        adapter = SidecarAdapter("dh-sidecar-test.read", isolated.client)
+        adapter = WasmHostAdapter("dh-host-test.read", isolated.client)
         with pytest.raises(UnknownOutcome) as captured:
             await adapter.execute(mutation, mutation_request)
         assert captured.value.reconciliation_required is True
@@ -303,9 +264,9 @@ async def test_sidecar_transport_loss_during_mutation_requires_reconciliation(
         isolated.cleanup()
 
 
-def test_sidecar_runtime_paths_must_be_absolute() -> None:
+def test_host_runtime_paths_must_be_absolute() -> None:
     with pytest.raises(ValueError, match="absolute"):
-        SidecarConnection(
+        WasmHostConnection(
             socket_path=Path("relative.sock"),
             expected_uid=os.getuid(),
             artifact_path=Path("/artifact"),
