@@ -18,12 +18,14 @@ import asyncio
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TypeVar
 
 from .config import MacInventory
 from .models import LocalAction, LocalActionRequest, LocalActionResult, action_requires_target
 from .obs import ObsClient, ObsError
 
 Handler = Callable[["MacExecutor", LocalActionRequest], Awaitable[LocalActionResult]]
+_V = TypeVar("_V")
 
 # A single caffeinate process holds the sleep-inhibit assertion for the agent.
 _caffeinate_lock = asyncio.Lock()
@@ -53,7 +55,7 @@ class MacExecutor:
     # ---- helpers -------------------------------------------------------------
 
     @staticmethod
-    def _lookup(mapping: dict[str, str], alias: str) -> str:
+    def _lookup(mapping: dict[str, _V], alias: str) -> _V:
         try:
             return mapping[alias]
         except KeyError as error:
@@ -307,6 +309,67 @@ class MacExecutor:
             raise LocalActionError(str(error)) from error
         return self._ok(request, "saved")
 
+    # ---- keyboard / input modes (§13.12) -------------------------------------
+
+    async def _input_select(self, request: LocalActionRequest) -> LocalActionResult:
+        # macOS has no safe CLI to switch the active input source, so — exactly
+        # like focus/display modes — the inventory maps the alias to a Shortcut
+        # NAME the operator authored ("Set Dvorak") that selects the source. The
+        # value is a Shortcut name, not a raw input-source id. Shortcuts don't
+        # report back, so this is requested/verified=False.
+        shortcut = self._lookup(self.inventory.input_sources, request.target)
+        await self._run("/usr/bin/shortcuts", "run", shortcut)
+        return self._ok(request, "requested", verified=False, source=shortcut)
+
+    async def _input_state(self, request: LocalActionRequest) -> LocalActionResult:
+        # Best-effort read of the active keyboard input source via System Events.
+        # This is not reliably readable across macOS versions, so on any failure
+        # we return "unknown" rather than guessing. Whole-machine, no target.
+        script = (
+            'tell application "System Events" to tell process "SystemUIServer" '
+            "to get the value of the first menu bar item of menu bar 1 whose "
+            'description is "text input"'
+        )
+        try:
+            name = await self._osascript(script)
+        except LocalActionError:
+            return self._ok(request, "unknown", verified=False)
+        name = name.strip()
+        if not name:
+            return self._ok(request, "unknown", verified=False)
+        return self._ok(request, "ok", verified=False, source=name)
+
+    async def _reset_modifiers(self, request: LocalActionRequest) -> LocalActionResult:
+        # Clear stuck modifier keys with a FIXED AppleScript key-up sequence. This
+        # takes no operator input at all — it is a constant command, so no alias
+        # is needed and nothing arbitrary can reach it. Whole-machine, no target.
+        script = 'tell application "System Events" to key up {command, option, control, shift}'
+        await self._osascript(script)
+        return self._ok(request, "reset")
+
+    # ---- generic app command (§13.8 / §13.9 / §13.10) ------------------------
+
+    async def _app_command(self, request: LocalActionRequest) -> LocalActionResult:
+        # ONE generic action covers GIMP/Blender/DaVinci menu commands without
+        # per-app code. The alias resolves to an operator-declared AppCommand
+        # (bundle id + AppleScript keystroke clause). Both were charset-validated
+        # at config time; here we (1) activate the app by its validated bundle id
+        # and (2) send the declared keystroke inside a FIXED System-Events frame.
+        # Because the keystroke text is operator-declared AND charset-validated
+        # AND wrapped in a fixed frame, no arbitrary AppleScript can execute.
+        command = self._lookup(self.inventory.app_commands, request.target)
+        bundle_id = command.bundle_id
+        if not re.fullmatch(r"[A-Za-z0-9.-]+", bundle_id):
+            raise LocalActionError("invalid bundle identifier")
+        await self._osascript(f'tell application id "{bundle_id}" to activate')
+        # Fixed frame: only the operator-declared, charset-validated keystroke
+        # clause is interpolated; the surrounding AppleScript is a constant.
+        await self._osascript(
+            'tell application "System Events" to tell '
+            f"(first process whose frontmost is true) to {command.keystroke}"
+        )
+        return self._ok(request, "requested", verified=False, bundle_id=bundle_id)
+
 
 def _which(name: str) -> str | None:
     from shutil import which
@@ -344,4 +407,8 @@ _HANDLERS: dict[LocalAction, Handler] = {
     LocalAction.OBS_RECORD_STATE: MacExecutor._obs_record_state,
     LocalAction.OBS_SOURCE_TOGGLE: MacExecutor._obs_source_toggle,
     LocalAction.OBS_REPLAY_SAVE: MacExecutor._obs_replay_save,
+    LocalAction.INPUT_SELECT: MacExecutor._input_select,
+    LocalAction.INPUT_STATE: MacExecutor._input_state,
+    LocalAction.RESET_MODIFIERS: MacExecutor._reset_modifiers,
+    LocalAction.APP_COMMAND: MacExecutor._app_command,
 }

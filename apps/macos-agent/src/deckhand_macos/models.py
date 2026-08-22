@@ -39,6 +39,13 @@ class LocalAction(StrEnum):
     OBS_RECORD_STATE = "mac.obs.record_state"
     OBS_SOURCE_TOGGLE = "mac.obs.source_toggle"
     OBS_REPLAY_SAVE = "mac.obs.replay_save"
+    # Keyboard / input modes (§13.12)
+    INPUT_SELECT = "mac.keyboard.input_select"
+    INPUT_STATE = "mac.keyboard.input_state"
+    RESET_MODIFIERS = "mac.keyboard.reset_modifiers"
+    # Generic app command — activate app + send an operator-declared keystroke.
+    # Unlocks GIMP (§13.8) / Blender (§13.9) / DaVinci (§13.10) without per-app code.
+    APP_COMMAND = "mac.app.command"
 
 
 # Actions whose target is a free-form alias vs. actions that take no target.
@@ -60,6 +67,9 @@ _NO_TARGET_ACTIONS = frozenset(
         LocalAction.OBS_RECORD_STOP,
         LocalAction.OBS_RECORD_STATE,
         LocalAction.OBS_REPLAY_SAVE,
+        # Whole-machine keyboard actions — no operator input at all.
+        LocalAction.INPUT_STATE,
+        LocalAction.RESET_MODIFIERS,
     }
 )
 
