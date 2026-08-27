@@ -174,9 +174,16 @@ class MacSettings(BaseSettings):
     inventory_path: Path = Path("config/macos.yaml")
     token_file: Path
 
+    @field_validator("inventory_path", "token_file")
+    @classmethod
+    def expand_paths(cls, value: Path) -> Path:
+        # Operators naturally write ~/.deckhand/... in env vars and config; Path
+        # does not expand that, and every read site would fail with ENOENT.
+        return value.expanduser()
+
 
 def load_inventory(path: Path) -> MacInventory:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(path.expanduser().read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("macOS inventory must be a mapping")
     return MacInventory.model_validate(raw)

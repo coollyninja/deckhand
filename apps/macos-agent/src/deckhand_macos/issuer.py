@@ -28,7 +28,7 @@ from typing import Annotated
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, Header, HTTPException, status
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DOMAIN = b"deckhand-identity-v1"
@@ -48,6 +48,12 @@ class IssuerSettings(BaseSettings):
     # reads the same token file) can request identities. Loopback-only already, but
     # this adds defence in depth against other local processes.
     caller_token_file: Path | None = None
+
+    @field_validator("signing_key_file", "caller_token_file")
+    @classmethod
+    def expand_paths(cls, value: Path | None) -> Path | None:
+        # Same reason as MacSettings: ~ must be expanded or every read fails.
+        return value.expanduser() if value is not None else None
 
 
 def _b64u(raw: bytes) -> str:

@@ -36,7 +36,10 @@ class ObsClient:
         if self.settings.password_file is None:
             return None
         try:
-            return Path(self.settings.password_file).read_text(encoding="utf-8").strip()
+            # expanduser: the inventory may carry a ~-prefixed path (as the operator
+            # inventory template documents). Path() does not expand it on its own.
+            path = Path(self.settings.password_file).expanduser()
+            return path.read_text(encoding="utf-8").strip()
         except OSError as error:
             raise ObsError(f"OBS password file unavailable: {error}") from error
 
