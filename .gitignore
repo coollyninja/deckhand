@@ -22,3 +22,6 @@ config/site.yaml
 # Operator's real macOS inventory (machine-specific bundle ids/paths/devices).
 config/macos.yaml
 graphify-out/
+
+# Stream Deck plugin runtime logs (created when the plugin runs locally).
+apps/streamdeck-plugin/logs/
