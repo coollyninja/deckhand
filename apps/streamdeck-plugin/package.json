@@ -7,7 +7,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "esbuild src/plugin.ts --bundle --platform=node --format=esm --target=node24 --outfile=com.coollyninja.deckhand.sdPlugin/bin/plugin.js --sourcemap",
+    "build": "node build.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "validate": "streamdeck validate com.coollyninja.deckhand.sdPlugin"
   },
