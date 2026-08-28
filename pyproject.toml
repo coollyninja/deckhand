@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
-  "cryptography>=45,<47",
+  "cryptography>=45,<51",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "jsonschema>=4.25,<5",
@@ -18,7 +18,7 @@ dependencies = [
   "pydantic-settings>=2.10,<3",
   "prometheus-client>=0.22,<1",
   "pyyaml>=6.0,<7",
-  "structlog>=25.4,<26",
+  "structlog>=25.4,<27",
   "uvicorn[standard]>=0.35,<1",
 ]
 
@@ -39,10 +39,10 @@ sdctl = "deckhand.cli:run"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.17,<2",
-  "pytest>=8.4,<9",
+  "mypy>=1.17,<3",
+  "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
-  "pytest-cov>=6.2,<7",
+  "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
   "types-jsonschema>=4.25,<5",
   "types-pyyaml>=6.0,<7",
