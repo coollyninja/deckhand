@@ -11,12 +11,12 @@ importers:
   apps/streamdeck-plugin:
     dependencies:
       '@elgato/streamdeck':
-        specifier: 2.1.1
-        version: 2.1.1
+        specifier: 2.1.2
+        version: 2.1.2
     devDependencies:
       '@elgato/cli':
-        specifier: 1.8.1
-        version: 1.8.1(@types/node@24.13.3)
+        specifier: 1.9.0
+        version: 1.9.0(@types/node@24.13.3)
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -29,20 +29,20 @@ importers:
 
 packages:
 
-  '@elgato/cli@1.8.1':
-    resolution: {integrity: sha512-c4nhUrssspNdCA53DVspJcYFbxUPgYeqzJKVlGJvjMAPUk7BSs6yUzLF5IsQwDxlO8XWydp54wNPQftuNX1++A==}
+  '@elgato/cli@1.9.0':
+    resolution: {integrity: sha512-svzkUhR5+4R2x1fiY05b2s2rEnCs64O9Tg/s/BHByxfimDcjWn1laKT3rDvUrmxgO44p3+w6ItSrk+uijOB05w==}
     engines: {node: '>=20.1.0'}
     hasBin: true
 
-  '@elgato/schemas@0.4.15':
-    resolution: {integrity: sha512-UpELAqazf52PFer+hqg/hvEhYoPHCH3R0af6P7Ih3Hk6xCCJENn7cA5TIpXAIGEWe6dIteHuo/e/iPGLUP7yXA==}
+  '@elgato/schemas@0.4.16':
+    resolution: {integrity: sha512-PFEi6F36ImO5KCSNHui9o/uXkwjca3hk5b95Df7LgNBdQYREXT3B+P3tYoz6avRuOPlArkKFSkOOvH6RRpjvLQ==}
 
-  '@elgato/streamdeck@2.1.1':
-    resolution: {integrity: sha512-1viBEWDZWtRJHmY6uceyNZSExb6b0nRBqHlQfPyPulBUQ8tDdzfS7YDZ9MusHYHq1d80GjgwFiJCyHbujrJrHQ==}
+  '@elgato/streamdeck@2.1.2':
+    resolution: {integrity: sha512-qj6NuDyYj8bE+XFnr+O5ynB1zojwugfWiK3oQYwweaOzOFs7fEE21v9z75EPC8wQr3cuuzI7m557TQLn5k/4mA==}
     engines: {node: '>=20.5.1'}
 
-  '@elgato/utils@0.5.0':
-    resolution: {integrity: sha512-qFIl5uT6LzQsesngwJZAQ+sFUzg5SRPbSwdWwrYe/HBRlWRwJoqZDUVYgbxdofpQQeCYgO22iAzzqw+MuSLzNA==}
+  '@elgato/utils@0.6.0':
+    resolution: {integrity: sha512-DkBf07zo0qzHkoMO2L8HSDlfEwI56rI0fWedJjXcafPpoePoZ/nzqi+xL60Ad2KpQzCxstyN65oqVZ/Ar6woNg==}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -200,8 +200,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@humanwhocodes/momoa@3.3.10':
-    resolution: {integrity: sha512-KWiFQpSAqEIyrTXko3hFNLeQvSK8zXlJQzhhxsyVn58WFRYXST99b3Nqnu+ttOtjds2Pl2grUHGpe2NzhPynuQ==}
+  '@humanwhocodes/momoa@3.3.12':
+    resolution: {integrity: sha512-xS9xl4ieqTqhSZfKV3YXj/htwJCUxbgvkTVaK1fkESgrOzvoVSOTRQeQ8tTLOZUS0Csi2xqtJQXgVTRH5OEbHQ==}
     engines: {node: '>=18'}
 
   '@inquirer/ansi@1.0.2':
@@ -341,8 +341,8 @@ packages:
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
 
-  '@zip.js/zip.js@2.8.48':
-    resolution: {integrity: sha512-Dl+QpuYi6ikBE9Q0DjLPbs54LKGZG8Uelgf+uJhn5Rk+sbaNb7xp47S2L6pZLHjfidljKaj4r/pwZuS5VZD6IQ==}
+  '@zip.js/zip.js@2.8.60':
+    resolution: {integrity: sha512-pULv0waMlnKAUUxrsuAOa0ADONGRuhdHORtuXVgClNlScDB5YjImCV8DZrE1SicaROyE6MwGkH8CLJ+o4Nx07g==}
     engines: {bun: '>=0.7.0', deno: '>=1.0.0', node: '>=18.0.0'}
 
   ajv@8.20.0:
@@ -411,8 +411,8 @@ packages:
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
-  fast-uri@3.1.5:
-    resolution: {integrity: sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==}
+  fast-uri@3.1.6:
+    resolution: {integrity: sha512-7Ical1vFEMr0onbVzEDIreM22I4khW+fzyQPwvAFWBp1iwdshSZRsL4jjRvPG9JP1uiqMHRto+YU6R2/CzDz5Q==}
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
@@ -562,11 +562,11 @@ packages:
 
 snapshots:
 
-  '@elgato/cli@1.8.1(@types/node@24.13.3)':
+  '@elgato/cli@1.9.0(@types/node@24.13.3)':
     dependencies:
-      '@elgato/schemas': 0.4.15
-      '@humanwhocodes/momoa': 3.3.10
-      '@zip.js/zip.js': 2.8.48
+      '@elgato/schemas': 0.4.16
+      '@humanwhocodes/momoa': 3.3.12
+      '@zip.js/zip.js': 2.8.60
       ajv: 8.20.0
       chalk: 5.6.2
       commander: 13.1.0
@@ -582,18 +582,18 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  '@elgato/schemas@0.4.15': {}
+  '@elgato/schemas@0.4.16': {}
 
-  '@elgato/streamdeck@2.1.1':
+  '@elgato/streamdeck@2.1.2':
     dependencies:
-      '@elgato/schemas': 0.4.15
-      '@elgato/utils': 0.5.0
+      '@elgato/schemas': 0.4.16
+      '@elgato/utils': 0.6.0
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@elgato/utils@0.5.0':
+  '@elgato/utils@0.6.0':
     dependencies:
       zod: 3.25.76
 
@@ -675,7 +675,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@humanwhocodes/momoa@3.3.10': {}
+  '@humanwhocodes/momoa@3.3.12': {}
 
   '@inquirer/ansi@1.0.2': {}
 
@@ -806,12 +806,12 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  '@zip.js/zip.js@2.8.48': {}
+  '@zip.js/zip.js@2.8.60': {}
 
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.5
+      fast-uri: 3.1.6
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -887,7 +887,7 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
-  fast-uri@3.1.5: {}
+  fast-uri@3.1.6: {}
 
   filelist@1.0.6:
     dependencies:
